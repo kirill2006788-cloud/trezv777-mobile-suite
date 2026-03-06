@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from '@nestjs/common';
+import jwt from 'jsonwebtoken';
 import { RedisService } from './redis.service';
 
 @Controller('client')
@@ -23,6 +24,22 @@ export class ClientsController {
 
   private promoUsedKey(clientId: string, code: string) {
     return `client:promo_used:${clientId}:${code.toLowerCase()}`;
+  }
+
+  private pushTokenKey(clientId: string) {
+    return `client:push_token:${clientId}`;
+  }
+
+  private requireClientId(auth?: string) {
+    const token = auth?.replace(/^Bearer\s+/i, '').trim();
+    if (!token) throw new UnauthorizedException('Client token required');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new UnauthorizedException('Server configuration error');
+    const payload = jwt.verify(token, secret) as any;
+    if (!payload || payload.role !== 'client' || typeof payload.phone !== 'string' || !payload.phone.trim()) {
+      throw new UnauthorizedException('Client token required');
+    }
+    return payload.phone.trim();
   }
 
   @Get('profile')
@@ -88,6 +105,27 @@ export class ClientsController {
     await this.redis.client.sadd('clients:all', id);
 
     return { ok: true, profile };
+  }
+
+  @Post('push-token')
+  async savePushToken(
+    @Headers('authorization') auth?: string,
+    @Body() body?: { token?: string; platform?: string },
+  ) {
+    const clientId = this.requireClientId(auth);
+    const token = (body?.token || '').toString().trim();
+    if (!token) {
+      await this.redis.client.del(this.pushTokenKey(clientId));
+      return { ok: true, deleted: true };
+    }
+
+    const payload = {
+      token,
+      platform: (body?.platform || 'ios').toString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.redis.client.set(this.pushTokenKey(clientId), JSON.stringify(payload));
+    return { ok: true };
   }
 
   @Post('bonus/use')

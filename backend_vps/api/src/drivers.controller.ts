@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from '@nestjs/common';
+import jwt from 'jsonwebtoken';
 import { DriversService } from './drivers.service';
 import { OrdersService } from './orders.service';
 import { RedisService } from './redis.service';
@@ -10,6 +11,22 @@ export class DriversController {
     private readonly orders: OrdersService,
     private readonly redis: RedisService,
   ) {}
+
+  private pushTokenKey(phone: string) {
+    return `driver:push_token:${phone}`;
+  }
+
+  private requireDriverPhone(auth?: string) {
+    const token = auth?.replace(/^Bearer\s+/i, '').trim();
+    if (!token) throw new UnauthorizedException('Driver token required');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new UnauthorizedException('Server configuration error');
+    const payload = jwt.verify(token, secret) as any;
+    if (!payload || payload.role !== 'driver' || typeof payload.phone !== 'string' || !payload.phone.trim()) {
+      throw new UnauthorizedException('Driver token required');
+    }
+    return payload.phone.trim();
+  }
 
   @Get('profile')
   async getProfile(@Query('phone') phone?: string) {
@@ -120,5 +137,26 @@ export class DriversController {
     };
     await this.drivers.saveProfile(phone, profile);
     return { ok: true, profile };
+  }
+
+  @Post('push-token')
+  async savePushToken(
+    @Headers('authorization') auth?: string,
+    @Body() body?: { token?: string; platform?: string },
+  ) {
+    const phone = this.requireDriverPhone(auth);
+    const token = (body?.token || '').toString().trim();
+    if (!token) {
+      await this.redis.client.del(this.pushTokenKey(phone));
+      return { ok: true, deleted: true };
+    }
+
+    const payload = {
+      token,
+      platform: (body?.platform || 'ios').toString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.redis.client.set(this.pushTokenKey(phone), JSON.stringify(payload));
+    return { ok: true };
   }
 }

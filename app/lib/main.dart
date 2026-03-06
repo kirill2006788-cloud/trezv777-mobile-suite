@@ -83,6 +83,48 @@ const _addressWorkKey = 'address_work';
 const _addressFavKey = 'address_favorite';
 const _orderHistoryKey = 'order_history';
 const _themeModeKey = 'theme_mode'; // 'dark' | 'light'
+const _iosPushChannel = MethodChannel('ru.prostotaxi.client/push');
+
+Future<String?> _requestIosPushToken() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return null;
+  try {
+    await _iosPushChannel.invokeMethod('requestPushPermissions');
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final token = await _iosPushChannel.invokeMethod<String>('getPushToken');
+      if (token != null && token.trim().isNotEmpty) {
+        return token.trim();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    }
+  } catch (_) {}
+  return null;
+}
+
+Future<void> _syncClientPushToken(
+  String authToken,
+  String clientId, {
+  required bool enabled,
+}) async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+  try {
+    final token = enabled ? await _requestIosPushToken() : '';
+    if (enabled && (token == null || token.isEmpty)) return;
+    await http
+        .post(
+          Uri.parse('$_apiBaseUrl/api/client/push-token'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $authToken',
+          },
+          body: jsonEncode({
+            'clientId': clientId,
+            'token': token ?? '',
+            'platform': 'ios',
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+  } catch (_) {}
+}
 
 String _shortenAddress(String raw) {
   var s = raw.trim();
@@ -4158,9 +4200,18 @@ class _OrderPageState extends State<OrderPage> with WidgetsBindingObserver {
 
   Future<void> _initRealtime() async {
     final clientId = await _getOrCreateClientId();
+    final prefs = await SharedPreferences.getInstance();
+    final notificationsEnabled = prefs.getBool(_notificationsEnabledKey) ?? true;
     if (!mounted) return;
     _clientId = clientId;
     _connectSocket(clientId);
+    unawaited(_syncClientPushToken(widget.token, clientId, enabled: notificationsEnabled));
+    unawaited(
+      Future<void>.delayed(
+        const Duration(seconds: 5),
+        () => _syncClientPushToken(widget.token, clientId, enabled: notificationsEnabled),
+      ),
+    );
   }
 
   Future<void> _loadPromo() async {
@@ -8101,6 +8152,10 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notificationsEnabledKey, enabled);
+    final clientId = _clientId ?? _phoneFromJwt(widget.token)?.trim();
+    if (clientId != null && clientId.isNotEmpty) {
+      unawaited(_syncClientPushToken(widget.token, clientId, enabled: enabled));
+    }
     if (!mounted) return;
     setState(() => _notificationsEnabled = enabled);
   }

@@ -77,6 +77,7 @@ const _accentDark = Color(0xFFFF3D00);
 const _activeOrderPrefsKey = 'driver_active_order_v1';
 const _activeOrderStateKey = 'driver_active_order_state_v1';
 const _preorderPrefsKey = 'driver_preorder_v1';
+const _iosPushChannel = MethodChannel('ru.prostotaxi.driver/push');
 
 final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
 const AndroidNotificationChannel _orderChannel = AndroidNotificationChannel(
@@ -88,12 +89,78 @@ const AndroidNotificationChannel _orderChannel = AndroidNotificationChannel(
 
 Future<void> _initNotifications() async {
   const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const initSettings = InitializationSettings(android: androidSettings);
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+  const initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
   await _notifications.initialize(settings: initSettings);
   final android = _notifications.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
   await android?.createNotificationChannel(_orderChannel);
   await android?.requestNotificationsPermission();
+  final ios = _notifications.resolvePlatformSpecificImplementation<
+      IOSFlutterLocalNotificationsPlugin>();
+  await ios?.requestPermissions(alert: true, badge: true, sound: true);
+}
+
+Future<String?> _requestIosPushToken() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return null;
+  try {
+    await _iosPushChannel.invokeMethod('requestPushPermissions');
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final token = await _iosPushChannel.invokeMethod<String>('getPushToken');
+      if (token != null && token.trim().isNotEmpty) {
+        return token.trim();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    }
+  } catch (_) {}
+  return null;
+}
+
+Future<void> _syncDriverPushToken(String authToken) async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+  try {
+    final token = await _requestIosPushToken();
+    if (token == null || token.isEmpty) return;
+    await http
+        .post(
+          Uri.parse('$_apiBaseUrl/api/driver/push-token'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $authToken',
+          },
+          body: jsonEncode({
+            'token': token,
+            'platform': 'ios',
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+  } catch (_) {}
+}
+
+NotificationDetails _orderNotificationDetails() {
+  return const NotificationDetails(
+    android: AndroidNotificationDetails(
+      _orderChannel.id,
+      _orderChannel.name,
+      channelDescription: _orderChannel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+    ),
+    iOS: DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    ),
+  );
 }
 
 class _AuthStore {
@@ -2688,6 +2755,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _driverPhone = _phoneFromJwt(widget.token);
     _refreshLocationPermission();
     _initOnlineAndConnect();
+    unawaited(_syncDriverPushToken(widget.token));
+    unawaited(Future<void>.delayed(const Duration(seconds: 5), () => _syncDriverPushToken(widget.token)));
     _startLocationStream();
     unawaited(_loadActiveOrder());
     unawaited(_restoreActiveOrder());
@@ -2898,6 +2967,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_syncDriverPushToken(widget.token));
       // Восстанавливаем сокет-соединение, но НЕ меняем онлайн-статус:
       // пользователь мог выбрать «оффлайн» перед сворачиванием.
       // Просто повторно отправляем текущий статус на сервер.
@@ -3879,20 +3949,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         : '';
     final body = '${order.pickupTitle} → ${order.dropoffTitle}${timeStr.isNotEmpty ? ' в $timeStr' : ''}';
     try {
-      final details = NotificationDetails(
-        android: AndroidNotificationDetails(
-          _orderChannel.id,
-          _orderChannel.name,
-          channelDescription: _orderChannel.description,
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-      );
       await _notifications.show(
         id: 99,
         title: title,
         body: body,
-        notificationDetails: details,
+        notificationDetails: _orderNotificationDetails(),
       );
     } catch (_) {}
   }
@@ -5499,16 +5560,6 @@ class _DriverOrder {
 }
 
 Future<void> _showOrderNotification(_DriverOrder order) async {
-  final details = NotificationDetails(
-    android: AndroidNotificationDetails(
-      _orderChannel.id,
-      _orderChannel.name,
-      channelDescription: _orderChannel.description,
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-    ),
-  );
   final isPreorder = order.scheduledAt != null;
   String title;
   String body;
@@ -5530,21 +5581,11 @@ Future<void> _showOrderNotification(_DriverOrder order) async {
     id: 1,
     title: title,
     body: body,
-    notificationDetails: details,
+    notificationDetails: _orderNotificationDetails(),
   );
 }
 
 Future<void> _showNearbyOrderNotification(_DriverOrder order) async {
-  final details = NotificationDetails(
-    android: AndroidNotificationDetails(
-      _orderChannel.id,
-      _orderChannel.name,
-      channelDescription: _orderChannel.description,
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-    ),
-  );
   final title = 'Заказ рядом';
   final body = '${order.pickupTitle} → ${order.dropoffTitle} • ${order.priceRub} ₽'
       '${order.promoDiscountPercent > 0 ? '  (-${order.promoDiscountPercent}% клиенту)' : ''}';
@@ -5552,7 +5593,7 @@ Future<void> _showNearbyOrderNotification(_DriverOrder order) async {
     id: 2,
     title: title,
     body: body,
-    notificationDetails: details,
+    notificationDetails: _orderNotificationDetails(),
   );
 }
 

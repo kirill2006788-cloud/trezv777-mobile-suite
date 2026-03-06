@@ -55,6 +55,7 @@ The workflow `.github/workflows/mobile-ci.yml` builds both apps for:
 
 - Android release APK
 - Android signed AAB when signing secrets are configured
+- Android automatic upload to Google Play `internal` when Play API credentials are configured
 - iOS release build without code signing
 
 Repository secrets/variables needed:
@@ -76,6 +77,8 @@ Exact secret names are documented in `GITHUB_ACTIONS_SECRETS.md`.
 - Create one release keystore per app or decide on a shared upload key policy.
 - Fill `android/key.properties` locally and later move the values to CI secrets.
 - Create app entries in Google Play Console.
+- Create a Google Play API service account and add its JSON key to `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`.
+- Grant that service account access to both package names: `ru.prostotaxi.client` and `ru.prostotaxi.driver`.
 
 ### App Store
 

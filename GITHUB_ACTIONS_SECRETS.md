@@ -43,9 +43,21 @@ When these secrets are present, the workflow will also build:
 - signed `AAB` for `app`
 - signed `AAB` for `prosto_taxi_driver`
 
+## Google Play automatic upload
+
+If you want GitHub Actions to upload the signed `AAB` automatically to Google Play `internal` track, add:
+
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`
+  - raw JSON of the Google Play service account key with access to both apps
+
+When this secret is present together with the Android signing secrets, the workflow will:
+
+- build signed `AAB`
+- upload the bundle to Google Play `internal`
+
 ## iOS distribution
 
-These are not wired into the workflow yet because store signing depends on Apple account setup, but this is the next exact set to prepare.
+The workflow now supports optional signed `IPA` export when the iOS signing secrets are present.
 
 ### App Store Connect API
 
@@ -76,6 +88,12 @@ These are not wired into the workflow yet because store signing depends on Apple
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\file"))
 ```
 
+Helper script in this repo:
+
+```powershell
+.\scripts\encode-file-base64.ps1 -Path "C:\path\to\file"
+```
+
 ### macOS/Linux
 
 ```bash
@@ -87,11 +105,25 @@ base64 -i /path/to/file
 - Builds both Flutter apps on push, PR, or manual run
 - Builds Android release APK for both apps
 - Builds Android signed AAB when Android signing secrets are present
+- Uploads signed Android AAB to Google Play `internal` when `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` is present
 - Builds iOS release without code signing for both apps
+- Exports signed iOS IPA when iOS signing secrets are present
+
+## Android keystore helper
+
+Windows helper script:
+
+```powershell
+.\scripts\create-android-keystore.ps1 -App client -StorePassword "..." -KeyPassword "..."
+.\scripts\create-android-keystore.ps1 -App driver -StorePassword "..." -KeyPassword "..."
+```
+
+The script creates `release-keystore.jks` in the app's `android` folder and prints the exact GitHub secret names to add.
 
 ## What is still blocked outside GitHub
 
 - Production `HTTPS` backend endpoint
 - Google Play app entries
+- Google Play service account with API access
 - Apple Developer / App Store Connect setup
 - iOS certificates and provisioning profiles

@@ -62,6 +62,8 @@ Add these repository secrets later:
 - `IOS_CLIENT_PROFILE_BASE64`
 - `IOS_DRIVER_PROFILE_BASE64`
 
+When these are present, the GitHub workflow can export a signed `IPA` artifact for each app.
+
 ## Push notifications in Apple
 
 For both app identifiers in Apple Developer:

@@ -85,6 +85,13 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        jniLibs {
+            // Some bundled native libraries fail symbol stripping on Windows/CI.
+            keepDebugSymbols += setOf("**/*.so")
+        }
+    }
+
     buildTypes {
         release {
             // Use a real release key when `android/key.properties` is present.

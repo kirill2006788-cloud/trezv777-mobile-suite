@@ -145,7 +145,7 @@ Future<void> _syncDriverPushToken(String authToken) async {
 }
 
 NotificationDetails _orderNotificationDetails() {
-  return const NotificationDetails(
+  return NotificationDetails(
     android: AndroidNotificationDetails(
       _orderChannel.id,
       _orderChannel.name,
@@ -154,7 +154,7 @@ NotificationDetails _orderNotificationDetails() {
       priority: Priority.high,
       playSound: true,
     ),
-    iOS: DarwinNotificationDetails(
+    iOS: const DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,

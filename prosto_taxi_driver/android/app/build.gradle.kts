@@ -81,7 +81,7 @@ android {
 
         buildConfigField("String", "YANDEX_MAPS_KEY", "\"$yandexMapsKey\"")
         
-        resValue("string", "app_name", "Ноль промилле")
+        resValue("string", "app_name", "Ноль Промилле водитель")
     }
 
     buildFeatures {

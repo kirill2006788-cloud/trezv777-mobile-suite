@@ -43,3 +43,6 @@ backend_vps/api/dist/
 
 # Logs
 *.log
+
+# iOS deploy archives (too large for GitHub)
+deploy_ios/*.zip

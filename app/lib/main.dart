@@ -178,6 +178,21 @@ String _shortenAddress(String raw) {
   return s.trim().isEmpty ? raw.trim() : s.trim();
 }
 
+/// Скрываем подсказки, похожие на госномер или код (46K-1081, K46, 46к-1083 и т.д.).
+bool _looksLikeLicensePlateOrCode(String text) {
+  final t = text.trim();
+  if (t.isEmpty) return false;
+  // Любая подстрока вида: 2-4 цифры + буква + опционально дефис+цифры (46K-1082, 46к-1083)
+  if (RegExp(r'\d{2,4}[A-Za-zА-Яа-яЁё](-\d+)?').hasMatch(t)) return true;
+  // Буква + 2-4 цифры (K46, К46)
+  if (RegExp(r'^[A-Za-zА-Яа-яЁё]\d{2,4}(-\d+)?$').hasMatch(t)) return true;
+  // Только цифры и одна буква без пробелов/запятых — короткий код (46K, 46H)
+  if (RegExp(r'^\d{2,4}[A-Za-zА-Яа-яЁё]$').hasMatch(t)) return true;
+  // Цифры-дефис-цифры без букв (46-1082) — тоже код
+  if (RegExp(r'^\d{2,4}-\d{4,}$').hasMatch(t)) return true;
+  return false;
+}
+
 int _applyDiscount(int price, int percent) {
   if (percent <= 0) return price;
   final next = price - (price * percent ~/ 100);
@@ -1931,61 +1946,9 @@ class _RoutePickerBottomSheetState extends State<_RoutePickerBottomSheet> {
       await _suggestSession?.close();
       _suggestSession = null;
 
-      final (session, futureResult) = await YandexSuggest.getSuggestions(
-        text: query,
-        boundingBox: _suggestBox(),
-        suggestOptions: SuggestOptions(
-          suggestType: SuggestType.unspecified,
-          strictBounds: false,
-          suggestWords: true,
-          userPosition: _fromPoint,
-        ),
-      );
-
-      _suggestSession = session;
-
-      final result = await futureResult;
-      await session.close();
-      if (!mounted || requestId != _suggestRequestId) return;
-
-      var items = (result.items ?? const <SuggestItem>[])
-          .map(
-            (i) => _AddressSuggestion(
-              _shortenAddress(i.displayText.isNotEmpty ? i.displayText : i.title),
-              i.center,
-              searchText: i.searchText,
-            ),
-          )
-          .toList(growable: false);
-
-      final geo = await _fallbackSearch(query);
-
-      if (items.isEmpty) {
-        items = geo;
-      } else if (geo.isNotEmpty) {
-        final merged = <_AddressSuggestion>[];
-        final seen = <String>{};
-
-        String keyOf(_AddressSuggestion s) {
-          final p = s.point;
-          final pl = p == null
-              ? ''
-              : '${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}';
-          return '${s.title.trim().toLowerCase()}|$pl';
-        }
-
-        for (final s in items) {
-          final k = keyOf(s);
-          if (seen.add(k)) merged.add(s);
-        }
-        for (final s in geo) {
-          final k = keyOf(s);
-          if (seen.add(k)) merged.add(s);
-          if (merged.length >= 20) break;
-        }
-
-        items = merged;
-      }
+      // Только geo-поиск (улицы, адреса) — как в Яндекс.Go, без Suggest API,
+      // чтобы не показывать номера маршрутов/коды (46K-1082 и т.п.)
+      var items = await _fallbackSearch(query);
 
       if (!mounted || requestId != _suggestRequestId) return;
 
@@ -1997,7 +1960,7 @@ class _RoutePickerBottomSheetState extends State<_RoutePickerBottomSheet> {
       });
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('Suggest failed: $e');
+        debugPrint('Address search failed: $e');
         debugPrint('$st');
       }
       if (!mounted || requestId != _suggestRequestId) return;
@@ -2048,7 +2011,10 @@ class _RoutePickerBottomSheetState extends State<_RoutePickerBottomSheet> {
               searchText: item.name,
             );
           })
-          .where((s) => s.title.trim().isNotEmpty)
+          .where((s) =>
+              s.title.trim().isNotEmpty &&
+              !_looksLikeLicensePlateOrCode(s.title) &&
+              !_looksLikeLicensePlateOrCode(s.searchText ?? ''))
           .toList(growable: false);
     } catch (e, st) {
       if (kDebugMode) {

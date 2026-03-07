@@ -587,11 +587,22 @@ class _OrderSearchingSheet extends StatelessWidget {
     required this.timeText,
     required this.onCancel,
     this.note,
+    this.showCallSupport = false,
   });
+
+  static const _supportPhone = '+79001234567';
 
   final String timeText;
   final VoidCallback onCancel;
   final String? note;
+  final bool showCallSupport;
+
+  Future<void> _callSupport() async {
+    final uri = Uri.parse('tel:$_supportPhone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -674,7 +685,91 @@ class _OrderSearchingSheet extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (note != null && note!.trim().isNotEmpty) ...[
+                  if (showCallSupport) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isLight ? const Color(0xFFF5F7FA) : const Color(0xFF1A1E28),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isLight ? const Color(0xFFDCE2EB) : const Color(0xFF2A3040),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time_rounded,
+                                color: isLight ? const Color(0xFF5C6477) : _white70,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Поиск занимает больше времени',
+                                  style: TextStyle(
+                                    color: isLight ? const Color(0xFF3A4050) : _white90,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Если водитель не найдётся в ближайшее время, позвоните нам — мы поможем подобрать водителя вручную.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: isLight ? const Color(0xFF5C6477) : _white70,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                onTap: _callSupport,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Ink(
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.phone, color: Colors.white, size: 16),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Позвонить в поддержку',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else if (note != null && note!.trim().isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -7034,6 +7129,7 @@ class _OrderPageState extends State<OrderPage> with WidgetsBindingObserver {
                         timeText: _formatMmSs(sec),
                         note: _searchDelayMessage,
                         onCancel: _cancelTrip,
+                        showCallSupport: sec >= 180,
                       ),
                     )
                   else if (_orderFlow == _OrderFlowState.assigned || _orderFlow == _OrderFlowState.enroute)

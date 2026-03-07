@@ -16,6 +16,8 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:vibration/vibration.dart';
 
 // Cached colors for performance
 const _white95 = Color(0xF2FFFFFF);
@@ -5106,6 +5108,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                       });
                                     });
                                   },
+                                  onTimeout: () {
+                                    _declineOrder();
+                                    setState(() {
+                                      _resultOverlay = _ActionResultOverlay.declined;
+                                    });
+                                    Future<void>.delayed(const Duration(milliseconds: 900), () {
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _resultOverlay = _ActionResultOverlay.none;
+                                      });
+                                    });
+                                  },
                                   onEnroute: () => _updateOrderStatus('enroute'),
                                   onArrived: () => _updateOrderStatus('arrived'),
                                   onStarted: () => _updateOrderStatus('started'),
@@ -5668,7 +5682,7 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-class _IncomingOrderCard extends StatelessWidget {
+class _IncomingOrderCard extends StatefulWidget {
   const _IncomingOrderCard({
     required this.order,
     required this.state,
@@ -5683,20 +5697,8 @@ class _IncomingOrderCard extends StatelessWidget {
     this.tripElapsed,
     this.tripPriceRub,
     this.onDismissCompleted,
+    this.onTimeout,
   });
-
-  static final _cardDecoration = BoxDecoration(
-    color: _black55,
-    borderRadius: BorderRadius.circular(18),
-    border: Border.all(color: _white10),
-    boxShadow: [
-      BoxShadow(
-        color: _black65,
-        blurRadius: 14,
-        offset: const Offset(0, 14),
-      ),
-    ],
-  );
 
   final _DriverOrder order;
   final _DriverOrderUiState state;
@@ -5711,31 +5713,198 @@ class _IncomingOrderCard extends StatelessWidget {
   final String? tripElapsed;
   final int? tripPriceRub;
   final VoidCallback? onDismissCompleted;
+  final VoidCallback? onTimeout;
+
+  @override
+  State<_IncomingOrderCard> createState() => _IncomingOrderCardState();
+}
+
+class _IncomingOrderCardState extends State<_IncomingOrderCard>
+    with SingleTickerProviderStateMixin {
+  static const _acceptTimeoutMs = 10000;
+  static const _urgentThresholdMs = 5000;
+  static const _tickIntervalMs = 50;
+
+  Timer? _countdownTimer;
+  int _msRemaining = _acceptTimeoutMs;
+  late AnimationController _glowController;
+  AudioPlayer? _audioPlayer;
+  bool _isUrgent = false;
+  bool _timedOut = false;
+  bool _vibrationTriggered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    if (widget.state == _DriverOrderUiState.incoming && widget.order.id.isNotEmpty) {
+      _startCountdown();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _IncomingOrderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.state != _DriverOrderUiState.incoming || widget.order.id.isEmpty) {
+      _stopCountdown();
+    } else if (oldWidget.order.id != widget.order.id) {
+      _resetCountdown();
+    }
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    _glowController.dispose();
+    _audioPlayer?.dispose();
+    super.dispose();
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _msRemaining = _acceptTimeoutMs;
+    _timedOut = false;
+    _vibrationTriggered = false;
+    _countdownTimer = Timer.periodic(const Duration(milliseconds: _tickIntervalMs), (_) {
+      if (!mounted) return;
+      _msRemaining -= _tickIntervalMs;
+      
+      if (_msRemaining <= _urgentThresholdMs && !_isUrgent) {
+        _isUrgent = true;
+        _glowController.repeat(reverse: true);
+        _playUrgentFeedback();
+      }
+      
+      if (_msRemaining <= 0 && !_timedOut) {
+        _timedOut = true;
+        _stopCountdown();
+        widget.onTimeout?.call();
+        return;
+      }
+      
+      setState(() {});
+    });
+  }
+
+  void _resetCountdown() {
+    _stopCountdown();
+    _isUrgent = false;
+    _msRemaining = _acceptTimeoutMs;
+    _vibrationTriggered = false;
+    _startCountdown();
+  }
+
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    _glowController.stop();
+    _glowController.reset();
+    _audioPlayer?.stop();
+    _isUrgent = false;
+  }
+
+  Future<void> _playUrgentFeedback() async {
+    if (_vibrationTriggered) return;
+    _vibrationTriggered = true;
+    try {
+      final hasVibrator = await Vibration.hasVibrator() ?? false;
+      if (hasVibrator) {
+        Vibration.vibrate(pattern: [0, 300, 150, 300, 150, 500], intensities: [0, 255, 0, 255, 0, 255]);
+      }
+    } catch (_) {
+      HapticFeedback.heavyImpact();
+    }
+    _startAlarmSound();
+  }
+
+  Future<void> _startAlarmSound() async {
+    try {
+      _audioPlayer ??= AudioPlayer();
+      await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
+      await _audioPlayer!.play(AssetSource('sounds/alarm.mp3'));
+    } catch (_) {
+      _playFallbackNotification();
+    }
+  }
+
+  Future<void> _playFallbackNotification() async {
+    try {
+      await _notifications.show(
+        id: 999,
+        title: 'ЗАКАЗ УХОДИТ!',
+        body: 'Примите заказ, пока не поздно!',
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'urgent_order',
+            'Срочные заказы',
+            channelDescription: 'Уведомления о заканчивающемся времени на принятие заказа',
+            importance: Importance.max,
+            priority: Priority.max,
+            playSound: true,
+            enableVibration: true,
+            category: AndroidNotificationCategory.alarm,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: true,
+            interruptionLevel: InterruptionLevel.critical,
+          ),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  double get _progress => _msRemaining / _acceptTimeoutMs;
+  int get _secondsRemaining => (_msRemaining / 1000).ceil();
 
   @override
   Widget build(BuildContext context) {
-    final isEmpty = order.id.isEmpty;
-    // Баннер предзаказа показываем только в incoming/accepted (не в активных состояниях)
-    final showPreorderBanner = order.scheduledAt != null &&
-        (state == _DriverOrderUiState.incoming || state == _DriverOrderUiState.accepted);
-    // В активных состояниях (enroute+) скрываем метрики для компактности
-    final isActive = state == _DriverOrderUiState.enroute ||
-        state == _DriverOrderUiState.arrived ||
-        state == _DriverOrderUiState.started ||
-        state == _DriverOrderUiState.completed;
+    final isEmpty = widget.order.id.isEmpty;
+    final showPreorderBanner = widget.order.scheduledAt != null &&
+        (widget.state == _DriverOrderUiState.incoming || widget.state == _DriverOrderUiState.accepted);
+    final isActive = widget.state == _DriverOrderUiState.enroute ||
+        widget.state == _DriverOrderUiState.arrived ||
+        widget.state == _DriverOrderUiState.started ||
+        widget.state == _DriverOrderUiState.completed;
+    final showCountdown = widget.state == _DriverOrderUiState.incoming && !isEmpty;
+
+    final cardDecoration = BoxDecoration(
+      color: _black55,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: _isUrgent ? const Color(0xFFFF3D00) : _white10,
+        width: _isUrgent ? 2.0 : 1.0,
+      ),
+      boxShadow: [
+        BoxShadow(color: _black65, blurRadius: 14, offset: const Offset(0, 14)),
+      ],
+    );
+
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.65,
       ),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: _cardDecoration,
+      decoration: cardDecoration,
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (showCountdown) ...[
+              _SmoothCountdownBanner(
+                progress: _progress,
+                secondsRemaining: _secondsRemaining,
+                isUrgent: _isUrgent,
+                glowController: _glowController,
+              ),
+              const SizedBox(height: 10),
+            ],
             if (showPreorderBanner) ...[
-              _PreorderBanner(scheduledAt: order.scheduledAt!),
+              _PreorderBanner(scheduledAt: widget.order.scheduledAt!),
               const SizedBox(height: 10),
             ],
             Row(
@@ -5754,7 +5923,7 @@ class _IncomingOrderCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                     Text(
-                      isEmpty ? 'Ожидаем заказ' : order.pickupTitle,
+                      isEmpty ? 'Ожидаем заказ' : widget.order.pickupTitle,
                       maxLines: 3,
                       softWrap: true,
                       style: TextStyle(
@@ -5773,7 +5942,7 @@ class _IncomingOrderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isEmpty ? '—' : order.dropoffTitle,
+                      isEmpty ? '—' : widget.order.dropoffTitle,
                       maxLines: 3,
                       softWrap: true,
                       style: TextStyle(
@@ -5782,7 +5951,7 @@ class _IncomingOrderCard extends StatelessWidget {
                         fontSize: 16,
                       ),
                     ),
-                    if (order.comment != null && order.comment!.isNotEmpty) ...[
+                    if (widget.order.comment != null && widget.order.comment!.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -5797,7 +5966,7 @@ class _IncomingOrderCard extends StatelessWidget {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                order.comment!,
+                                widget.order.comment!,
                                 style: TextStyle(color: _white78, fontSize: 13, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -5805,7 +5974,7 @@ class _IncomingOrderCard extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (order.wish != null && order.wish!.isNotEmpty) ...[
+                    if (widget.order.wish != null && widget.order.wish!.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -5820,7 +5989,7 @@ class _IncomingOrderCard extends StatelessWidget {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                order.wish!,
+                                widget.order.wish!,
                                 style: TextStyle(color: const Color(0xFFFFD080), fontSize: 13, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -5833,24 +6002,23 @@ class _IncomingOrderCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               _PriceBlock(
-                order: order,
-                livePrice: (state == _DriverOrderUiState.started ||
-                        state == _DriverOrderUiState.completed)
-                    ? tripPriceRub
+                order: widget.order,
+                livePrice: (widget.state == _DriverOrderUiState.started ||
+                        widget.state == _DriverOrderUiState.completed)
+                    ? widget.tripPriceRub
                     : null,
               ),
             ],
           ),
           const SizedBox(height: 12),
           if (!isEmpty) ...[
-            // Метрики подачи/поездки — только в incoming/accepted, для компактности
             if (!isActive) ...[
               Row(
                 children: [
                   Expanded(
                     child: _MetricChip(
                       icon: Icons.navigation,
-                      label: '${order.pickupDistanceKm.toStringAsFixed(1)} км • ${order.pickupEtaMin} мин до подачи',
+                      label: '${widget.order.pickupDistanceKm.toStringAsFixed(1)} км • ${widget.order.pickupEtaMin} мин до подачи',
                     ),
                   ),
                 ],
@@ -5861,36 +6029,36 @@ class _IncomingOrderCard extends StatelessWidget {
                   Expanded(
                     child: _MetricChip(
                       icon: Icons.route,
-                      label: '${order.tripDistanceKm.toStringAsFixed(1)} км • ${order.tripEtaMin} мин поездка',
+                      label: '${widget.order.tripDistanceKm.toStringAsFixed(1)} км • ${widget.order.tripEtaMin} мин поездка',
                     ),
                   ),
                 ],
               ),
             ],
-          if (state == _DriverOrderUiState.started &&
-              tripElapsed != null) ...[
+          if (widget.state == _DriverOrderUiState.started &&
+              widget.tripElapsed != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: _MetricChip(
                     icon: Icons.timer,
-                    label: 'В пути: $tripElapsed',
+                    label: 'В пути: ${widget.tripElapsed}',
                   ),
                 ),
               ],
             ),
           ],
-          if (state == _DriverOrderUiState.completed &&
-              tripElapsed != null &&
-              tripPriceRub != null) ...[
+          if (widget.state == _DriverOrderUiState.completed &&
+              widget.tripElapsed != null &&
+              widget.tripPriceRub != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: _MetricChip(
                     icon: Icons.payments,
-                    label: 'Итог: ${tripPriceRub!} ₽ • $tripElapsed',
+                    label: 'Итог: ${widget.tripPriceRub!} ₽ • ${widget.tripElapsed}',
                   ),
                 ),
               ],
@@ -5904,7 +6072,7 @@ class _IncomingOrderCard extends StatelessWidget {
                     color: Colors.transparent,
                     borderRadius: BorderRadius.circular(14),
                     child: InkWell(
-                      onTap: onNavigate,
+                      onTap: widget.onNavigate,
                       borderRadius: BorderRadius.circular(14),
                       child: Ink(
                         height: 48,
@@ -5937,25 +6105,29 @@ class _IncomingOrderCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (order.clientPhone != null &&
-                    order.clientPhone!.isNotEmpty &&
-                    state != _DriverOrderUiState.incoming &&
-                    state != _DriverOrderUiState.declined) ...[
+                if (widget.order.clientPhone != null &&
+                    widget.order.clientPhone!.isNotEmpty &&
+                    widget.state != _DriverOrderUiState.incoming &&
+                    widget.state != _DriverOrderUiState.declined) ...[
                   const SizedBox(width: 10),
-                  _CallClientButton(phone: order.clientPhone!),
+                  _CallClientButton(phone: widget.order.clientPhone!),
                 ],
               ],
             ),
           ],
           const SizedBox(height: 12),
-          if (state == _DriverOrderUiState.incoming)
+          if (widget.state == _DriverOrderUiState.incoming)
             _ActionButton(
-              label: 'ПРИНЯТЬ',
+              label: 'ПРИНЯТЬ  ${showCountdown ? "($_secondsRemaining)" : ""}',
               isPrimary: true,
-              enabled: canAct,
-              onPressed: onAccept,
+              enabled: widget.canAct && !_timedOut,
+              onPressed: () {
+                _stopCountdown();
+                widget.onAccept();
+              },
+              isUrgent: _isUrgent,
             )
-          else if (state == _DriverOrderUiState.accepted)
+          else if (widget.state == _DriverOrderUiState.accepted)
             Row(
               children: [
                 Expanded(
@@ -5963,7 +6135,7 @@ class _IncomingOrderCard extends StatelessWidget {
                     label: 'В ПУТИ',
                     isPrimary: true,
                     enabled: true,
-                    onPressed: onEnroute,
+                    onPressed: widget.onEnroute,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -5972,33 +6144,33 @@ class _IncomingOrderCard extends StatelessWidget {
                     label: 'НА МЕСТЕ',
                     isPrimary: false,
                     enabled: true,
-                    onPressed: onArrived,
+                    onPressed: widget.onArrived,
                   ),
                 ),
               ],
             )
-          else if (state == _DriverOrderUiState.enroute)
+          else if (widget.state == _DriverOrderUiState.enroute)
             _ActionButton(
               label: 'НА МЕСТЕ',
               isPrimary: true,
               enabled: true,
-              onPressed: onArrived,
+              onPressed: widget.onArrived,
             )
-          else if (state == _DriverOrderUiState.arrived)
+          else if (widget.state == _DriverOrderUiState.arrived)
             _ActionButton(
               label: 'НАЧАТЬ ПОЕЗДКУ',
               isPrimary: true,
               enabled: true,
-              onPressed: onStarted,
+              onPressed: widget.onStarted,
             )
-          else if (state == _DriverOrderUiState.started)
+          else if (widget.state == _DriverOrderUiState.started)
             _ActionButton(
               label: 'ЗАВЕРШИТЬ',
               isPrimary: true,
               enabled: true,
-              onPressed: onCompleted,
+              onPressed: widget.onCompleted,
             )
-          else if (state == _DriverOrderUiState.completed) ...[
+          else if (widget.state == _DriverOrderUiState.completed) ...[
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.all(12),
@@ -6010,7 +6182,7 @@ class _IncomingOrderCard extends StatelessWidget {
               child: Text(
                 'Предложите визитку клиенту!',
                 style: TextStyle(
-                  color: Colors.greenAccent.shade400.withValues(alpha: 0.85),
+                  color: Colors.greenAccent.shade400.withOpacity(0.85),
                   fontWeight: FontWeight.w800,
                   fontSize: 13,
                 ),
@@ -6022,13 +6194,127 @@ class _IncomingOrderCard extends StatelessWidget {
               label: 'ГОТОВО',
               isPrimary: true,
               enabled: true,
-              onPressed: onDismissCompleted ?? () {},
+              onPressed: widget.onDismissCompleted ?? () {},
             ),
           ],
         ],
         ),
       ),
     );
+  }
+}
+
+class _SmoothCountdownBanner extends StatelessWidget {
+  const _SmoothCountdownBanner({
+    required this.progress,
+    required this.secondsRemaining,
+    required this.isUrgent,
+    required this.glowController,
+  });
+
+  final double progress;
+  final int secondsRemaining;
+  final bool isUrgent;
+  final AnimationController glowController;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = isUrgent ? const Color(0xFFFF3D00) : const Color(0xFF4CAF50);
+    final bgColor = isUrgent ? const Color(0xFF2D0A0A) : const Color(0xFF1A2636);
+    final textColor = isUrgent ? const Color(0xFFFF6B4A) : _white90;
+
+    Widget content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isUrgent ? const Color(0xFFFF3D00) : const Color(0xFF2A3A50),
+          width: isUrgent ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              if (isUrgent)
+                AnimatedBuilder(
+                  animation: glowController,
+                  builder: (_, __) => Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color.lerp(const Color(0xFFFF3D00), const Color(0xFFFFFF00), glowController.value),
+                    size: 20,
+                  ),
+                )
+              else
+                Icon(Icons.timer_outlined, color: baseColor, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isUrgent ? 'ПРИМИТЕ ЗАКАЗ!' : 'Время на принятие',
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: baseColor.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$secondsRemaining',
+                  style: TextStyle(
+                    color: baseColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 8,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Stack(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _white10,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  FractionallySizedBox(
+                    widthFactor: progress.clamp(0.0, 1.0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        gradient: LinearGradient(
+                          colors: isUrgent
+                              ? [const Color(0xFFFF6B00), const Color(0xFFFF2D00)]
+                              : [const Color(0xFF66BB6A), const Color(0xFF43A047)],
+                        ),
+                        boxShadow: isUrgent
+                            ? [BoxShadow(color: const Color(0xAAFF3D00), blurRadius: 6)]
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return content;
   }
 }
 
@@ -6601,32 +6887,40 @@ class _ActionButton extends StatelessWidget {
     required this.isPrimary,
     required this.enabled,
     required this.onPressed,
+    this.isUrgent = false,
   });
 
   final String label;
   final bool isPrimary;
   final bool enabled;
   final VoidCallback onPressed;
+  final bool isUrgent;
 
   @override
   Widget build(BuildContext context) {
-    final bg = isPrimary
+    final bg = isUrgent
         ? const LinearGradient(
-            colors: [_accentColor, _accentDark],
+            colors: [Color(0xFFFF1744), Color(0xFFD50000)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           )
-        : LinearGradient(
-            colors: [
-              _white12,
-              _white06,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          );
+        : isPrimary
+            ? const LinearGradient(
+                colors: [_accentColor, _accentDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : LinearGradient(
+                colors: [
+                  _white12,
+                  _white06,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              );
 
     final fg = enabled
-        ? (isPrimary ? Colors.white : _white92)
+        ? (isPrimary || isUrgent ? Colors.white : _white92)
         : _white40;
 
     return Material(
@@ -6641,16 +6935,20 @@ class _ActionButton extends StatelessWidget {
             gradient: bg,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: isPrimary
-                  ? Colors.transparent
-                  : _white12,
+              color: isUrgent
+                  ? const Color(0xFFFF1744)
+                  : isPrimary
+                      ? Colors.transparent
+                      : _white12,
+              width: isUrgent ? 2 : 1,
             ),
-            boxShadow: isPrimary
+            boxShadow: isPrimary || isUrgent
                 ? [
                     BoxShadow(
-                      color: _black55,
-                      blurRadius: 14,
+                      color: isUrgent ? const Color(0x66FF1744) : _black55,
+                      blurRadius: isUrgent ? 20 : 14,
                       offset: const Offset(0, 12),
+                      spreadRadius: isUrgent ? 2 : 0,
                     ),
                   ]
                 : null,

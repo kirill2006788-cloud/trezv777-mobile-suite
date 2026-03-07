@@ -80,6 +80,8 @@ android {
         manifestPlaceholders["YANDEX_MAPS_KEY"] = yandexMapsKey
 
         buildConfigField("String", "YANDEX_MAPS_KEY", "\"$yandexMapsKey\"")
+        
+        resValue("string", "app_name", "Ноль промилле")
     }
 
     buildFeatures {

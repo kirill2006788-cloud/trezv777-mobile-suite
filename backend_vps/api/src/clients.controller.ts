@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Post, Query, UnauthorizedException } from '@nestjs/common';
 import jwt from 'jsonwebtoken';
 import { RedisService } from './redis.service';
 
@@ -51,7 +51,7 @@ export class ClientsController {
   async getProfile(@Query('clientId') clientId?: string, @Headers('authorization') auth?: string) {
     const id = this.requireClientId(auth);
     if (clientId && clientId.trim() && clientId.trim() !== id) {
-      throw new UnauthorizedException('Client token mismatch');
+      throw new ForbiddenException('Client token mismatch');
     }
     const raw = await this.redis.client.get(this.profileKey(id));
     let profile: any = {};
@@ -82,7 +82,7 @@ export class ClientsController {
   ) {
     const id = this.requireClientId(auth);
     if (body.clientId && body.clientId.trim() && body.clientId.trim() !== id) {
-      throw new UnauthorizedException('Client token mismatch');
+      throw new ForbiddenException('Client token mismatch');
     }
 
     const referralCode = (body.referralCode || '').toString().trim().replace(/\D/g, '');
@@ -143,7 +143,7 @@ export class ClientsController {
     const id = this.requireClientId(auth);
     const amount = Math.max(0, Math.round(Number(body.amount) || 0));
     if (body.clientId && body.clientId.trim() && body.clientId.trim() !== id) {
-      throw new UnauthorizedException('Client token mismatch');
+      throw new ForbiddenException('Client token mismatch');
     }
     if (amount <= 0) throw new BadRequestException('amount must be positive');
 
@@ -162,7 +162,7 @@ export class ClientsController {
     const id = this.requireClientId(auth);
     const code = (body.code || '').toString().trim().toLowerCase();
     if (body.clientId && body.clientId.trim() && body.clientId.trim() !== id) {
-      throw new UnauthorizedException('Client token mismatch');
+      throw new ForbiddenException('Client token mismatch');
     }
     if (!code) throw new BadRequestException('code required');
 

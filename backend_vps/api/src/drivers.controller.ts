@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, Param, Post, Query, UnauthorizedException } from '@nestjs/common';
 import jwt from 'jsonwebtoken';
 import { DriversService } from './drivers.service';
 import { OrdersService } from './orders.service';
@@ -41,7 +41,7 @@ export class DriversController {
   async getProfile(@Query('phone') phone?: string, @Headers('authorization') auth?: string) {
     const normalized = this.requireDriverPhone(auth);
     if (phone && phone.trim() && phone.trim() !== normalized) {
-      throw new UnauthorizedException('Driver token mismatch');
+      throw new ForbiddenException('Driver token mismatch');
     }
     const profile = await this.drivers.getProfile(normalized);
     const backupRaw = await this.redis.client.get(this.photosBackupKey(normalized));
@@ -84,7 +84,7 @@ export class DriversController {
   ) {
     const normalized = this.requireDriverPhone(auth);
     if (phone && phone.trim() && phone.trim() !== normalized) {
-      throw new UnauthorizedException('Driver token mismatch');
+      throw new ForbiddenException('Driver token mismatch');
     }
     const limit = Math.min(100, Math.max(1, Number(limitRaw) || 50));
     const orders = await this.orders.listOrdersForDriver(normalized, limit);
@@ -153,7 +153,7 @@ export class DriversController {
   ) {
     const phone = this.requireDriverPhone(auth);
     if (body.phone && body.phone.trim() && body.phone.trim() !== phone) {
-      throw new UnauthorizedException('Driver token mismatch');
+      throw new ForbiddenException('Driver token mismatch');
     }
     const referralCode = (body.referralCode || '').toString().trim().replace(/\D/g, '');
     const existing = await this.drivers.getProfile(phone);

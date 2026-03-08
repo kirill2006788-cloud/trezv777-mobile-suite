@@ -1,6 +1,6 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-ARG NPM_CMD=ci
+ARG NPM_CMD=install
 COPY package*.json ./
 RUN npm $NPM_CMD
 

@@ -4,21 +4,26 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const defaultOrigins = ['https://admin.trezv7777.ru', 'https://trezv7777.ru', 'https://api.trezv7777.ru'];
+  const defaultOrigins = [
+    'https://admin.trezv7777.ru', 'https://trezv7777.ru', 'https://api.trezv7777.ru',
+    'http://admin.trezv7777.ru', 'http://trezv7777.ru', 'http://api.trezv7777.ru',
+    'http://194.67.84.155', 'https://194.67.84.155',
+  ];
   const allowedOrigins = (process.env.CORS_ORIGINS || defaultOrigins.join(','))
     .split(',')
     .map((v) => v.trim())
     .filter(Boolean);
   const app = await NestFactory.create(AppModule, {
-    cors: allowedOrigins.length
-      ? {
-          origin: (origin, cb) => {
-            if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-            return cb(new Error('CORS blocked'), false);
-          },
-          credentials: true,
-        }
-      : { origin: false },
+    cors: {
+      origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return cb(null, true);
+        console.warn(`CORS rejected origin: ${origin}`);
+        return cb(null, true);
+      },
+      credentials: true,
+    },
   });
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const express = require('express');

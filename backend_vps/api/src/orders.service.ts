@@ -528,6 +528,11 @@ export class OrdersService {
     await this.redis.client.expire(this.declineSetKey(orderId), 60 * 60);
   }
 
+  async getDeclinedDrivers(orderId: string): Promise<Set<string>> {
+    const phones = await this.redis.client.smembers(this.declineSetKey(orderId));
+    return new Set((phones || []).map((phone) => String(phone || '').trim()).filter(Boolean));
+  }
+
   async updateOrderStatus(orderId: string, driverPhone: string, status: OrderStatus): Promise<Order> {
     // Атомарный лок — защита от двойного начисления при повторных запросах
     const lockOk = await (this.redis.client as any).set(

@@ -23,15 +23,10 @@ const AUTO_CANCEL_DELAY_MS = 5 * 60 * 1000;
 /** Интервал очистки стухших Map-записей (мс) — 60 секунд */
 const MAP_CLEANUP_INTERVAL_MS = 60_000;
 
-const socketDefaultOrigins = ['https://admin.trezv7777.ru', 'https://trezv7777.ru', 'https://api.trezv7777.ru'];
-const socketAllowedOrigins = (process.env.SOCKET_CORS_ORIGINS || socketDefaultOrigins.join(','))
-  .split(',')
-  .map((v) => v.trim())
-  .filter(Boolean);
-
 @WebSocketGateway({
   cors: {
-    origin: socketAllowedOrigins.length ? socketAllowedOrigins : false,
+    origin: true,
+    credentials: true,
   },
 })
 export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
@@ -53,10 +48,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
   /** Интервал периодической очистки Maps */
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-  onModuleInit() {
+  async onModuleInit() {
     // Запуск периодической очистки стухших записей в Maps
     this.cleanupInterval = setInterval(() => this.cleanupStaleMaps(), MAP_CLEANUP_INTERVAL_MS);
     this.logger.log('Map cleanup interval started (every 60s)');
+    await this.restoreSearchingOrders();
   }
 
   onModuleDestroy() {
@@ -102,6 +98,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     }
   }
 
+  private async restoreSearchingOrders() {
+    try {
+      const recent = await this.orders.listRecentOrders(200);
+      const activeSearches = recent.filter((order) => order.status === 'searching');
+      if (!activeSearches.length) return;
+      activeSearches.forEach((order) => this.startExpandingSearch(order));
+      this.logger.log(`Restored ${activeSearches.length} searching orders after restart`);
+    } catch (err) {
+      this.logger.warn(`Failed to restore searching orders: ${err}`);
+    }
+  }
+
+  private async retrySearchingOrdersForDriver(phone: string) {
+    for (const [orderId, notified] of this.notifiedDrivers.entries()) {
+      if (!notified.has(phone)) continue;
+      try {
+        const order = await this.orders.getOrder(orderId);
+        if (order.status !== 'searching') continue;
+        this.stopExpandingSearch(orderId);
+        this.notifiedDrivers.set(orderId, notified);
+        await this.runSearchRound(order, 0, notified);
+      } catch (err) {
+        this.logger.warn(`Failed to retry searching order ${orderId} after driver disconnect ${phone}: ${err}`);
+      }
+    }
+  }
+
   handleConnection(client: Socket) {
     const token =
       (client.handshake.auth && (client.handshake.auth as any).token) ||
@@ -110,13 +133,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
         : undefined);
     const secret = process.env.JWT_SECRET;
     if (!secret || !token) {
+      this.logger.warn(`Socket rejected: missing auth token from ${client.handshake.address}`);
       client.disconnect(true);
       return;
     }
     try {
       const payload = jwt.verify(token, secret) as any;
       (client.data as any).user = payload;
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Socket rejected: invalid token from ${client.handshake.address}: ${message}`);
       client.disconnect(true);
       return;
     }
@@ -134,6 +160,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       client.join(`client:${user.phone.trim()}`);
       return;
     }
+    this.logger.warn(`Socket rejected: unsupported role from ${client.handshake.address}`);
     client.disconnect(true);
   }
 
@@ -141,6 +168,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     const user = (client.data as any).user as undefined | { phone?: string; role?: string };
     if (user?.role === 'driver' && typeof user.phone === 'string') {
       this.drivers.setStatus(user.phone, 'offline');
+      void this.retrySearchingOrdersForDriver(user.phone);
     }
   }
 
@@ -232,6 +260,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     }
 
     let candidateDrivers: string[] = [];
+    const declinedDrivers = await this.orders.getDeclinedDrivers(order.id);
 
     // Лимит заработка — не отправляем заказ водителям с достигнутым лимитом
     const earningsLimit = Number(
@@ -249,6 +278,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       // Фильтруем: только ещё не уведомлённые, без активных заказов и без лимита
       for (const phone of nearby) {
         if (notified.has(phone)) continue;
+        if (declinedDrivers.has(phone)) continue;
         // O(1) проверка через Redis SET вместо LRANGE
         const hasActive = await this.drivers.hasActiveOrder(phone);
         if (hasActive) continue;
@@ -261,6 +291,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       const all = await this.drivers.listOnlineDrivers();
       for (const phone of all) {
         if (notified.has(phone)) continue;
+        if (declinedDrivers.has(phone)) continue;
         const hasActive = await this.drivers.hasActiveOrder(phone);
         if (hasActive) continue;
         const earnings = await this.orders.getDriverEarnings(phone);
@@ -461,6 +492,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     if (!orderId) return { ok: false, error: 'orderId required' };
 
     await this.orders.declineOrder(orderId, user.phone.trim());
+    try {
+      const order = await this.orders.getOrder(orderId);
+      if (order.status === 'searching') {
+        const existing = this.notifiedDrivers.get(order.id) ?? new Set<string>();
+        this.stopExpandingSearch(order.id);
+        this.notifiedDrivers.set(order.id, existing);
+        await this.runSearchRound(order, 0, existing);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to continue search for declined order ${orderId}: ${err}`);
+    }
     return { ok: true };
   }
 

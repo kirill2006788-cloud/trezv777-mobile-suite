@@ -72,8 +72,25 @@ class _FastPageRoute<T> extends PageRouteBuilder<T> {
 
 const _apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://api.trezv7777.ru',
+  defaultValue: 'http://194.67.84.155',
 );
+
+String _formatRubAmount(num? value) {
+  final n = (value ?? 0).round();
+  final s = n.abs().toString();
+  final b = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    final left = s.length - i;
+    b.write(s[i]);
+    if (left > 1 && left % 3 == 1) b.write(' ');
+  }
+  final v = n < 0 ? '-${b.toString()}' : b.toString();
+  return '$v ₽';
+}
+
+bool _isSameCalendarDay(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
 const _accentColor = Color(0xFFFF2D55);
 const _accentDark = Color(0xFFFF3D00);
 const _activeOrderPrefsKey = 'driver_active_order_v1';
@@ -210,19 +227,6 @@ class _AuthApi {
     }
     return raw;
   }
-
-String _formatRubAmount(num? value) {
-  final n = (value ?? 0).round();
-  final s = n.abs().toString();
-  final b = StringBuffer();
-  for (var i = 0; i < s.length; i++) {
-    final left = s.length - i;
-    b.write(s[i]);
-    if (left > 1 && left % 3 == 1) b.write(' ');
-  }
-  final v = n < 0 ? '-${b.toString()}' : b.toString();
-  return '$v ₽';
-}
 
   String _normalizeCode(String input) {
     return input.replaceAll(RegExp(r'\D'), '');
@@ -961,6 +965,46 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
     return fallback;
   }
 
+  Future<http.Response> _profileAuthGet(Uri uri) async {
+    final res = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${widget.token}'},
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode == 401) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Сессия истекла. Войдите заново.')),
+        );
+      }
+      await widget.onLogout();
+    }
+    return res;
+  }
+
+  Future<http.Response> _profileAuthPost(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    final response = await http.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer ${widget.token}',
+        ...?headers,
+      },
+      body: body,
+    ).timeout(const Duration(seconds: 60));
+    if (response.statusCode == 401) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Сессия истекла. Войдите заново.')),
+        );
+      }
+      await widget.onLogout();
+    }
+    return response;
+  }
+
   _DriverProfileData _data = const _DriverProfileData(
     rating: 0,
     acceptedOrders: 0,
@@ -1031,11 +1075,9 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
       final uri = Uri.parse('$_apiBaseUrl/api/driver/profile')
           .replace(queryParameters: {'phone': phone});
       debugPrint('[PROFILE] fetch: $uri');
-      final res = await http.get(
-        uri,
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
+      final res = await _profileAuthGet(uri);
       debugPrint('[PROFILE] status=${res.statusCode} body=${res.body.length > 200 ? res.body.substring(0, 200) : res.body}');
+      if (res.statusCode == 401) return;
       if (res.statusCode < 200 || res.statusCode >= 300) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1150,15 +1192,13 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
         serverMap.remove('registrationStatus');
       }
       final uri = Uri.parse('$_apiBaseUrl/api/driver/profile');
-      final resp = await http.post(
+      final resp = await _profileAuthPost(
         uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${widget.token}',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'phone': phone.trim(), ...serverMap}),
-      ).timeout(const Duration(seconds: 60));
+      );
       debugPrint('[PROFILE SAVE] status=${resp.statusCode} body=${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}');
+      if (resp.statusCode == 401) return;
       if (resp.statusCode != 200 && resp.statusCode != 201) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1436,6 +1476,7 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
                         builder: (_) => _DriverTripsHistoryPage(
                           token: widget.token,
                           driverPhone: widget.driverPhone,
+                          onLogout: widget.onLogout,
                         ),
                       ),
                     );
@@ -1702,10 +1743,15 @@ class _ProfileTileTrips extends StatelessWidget {
 }
 
 class _DriverTripsHistoryPage extends StatefulWidget {
-  const _DriverTripsHistoryPage({required this.token, required this.driverPhone});
+  const _DriverTripsHistoryPage({
+    required this.token,
+    required this.driverPhone,
+    required this.onLogout,
+  });
 
   final String token;
   final String? driverPhone;
+  final Future<void> Function() onLogout;
 
   @override
   State<_DriverTripsHistoryPage> createState() => _DriverTripsHistoryPageState();
@@ -1730,13 +1776,41 @@ class _DriverTripsHistoryPageState extends State<_DriverTripsHistoryPage> {
     try {
       final uri = Uri.parse('$_apiBaseUrl/api/driver/trips')
           .replace(queryParameters: {'phone': phone, 'limit': '100'});
-      final res = await http.get(uri, headers: {'Authorization': 'Bearer ${widget.token}'});
+      final res = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 401) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Сессия истекла. Войдите заново.')),
+          );
+        }
+        await widget.onLogout();
+        return;
+      }
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final map = jsonDecode(res.body) as Map<String, dynamic>;
         final trips = (map['trips'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         if (mounted) setState(() => _trips = trips);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось загрузить поездки: ${res.statusCode}')),
+        );
       }
-    } catch (_) {}
+    } on TimeoutException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Сервер долго отвечает. Попробуйте снова.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка сети: $e')),
+        );
+      }
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -2815,6 +2889,30 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ),
     );
     widget.onLogout();
+  }
+
+  String _socketAuthErrorText(dynamic data) {
+    if (data is Map) {
+      final parts = <String>[
+        data['message']?.toString() ?? '',
+        data['error']?.toString() ?? '',
+        data['description']?.toString() ?? '',
+        data['reason']?.toString() ?? '',
+      ].where((part) => part.trim().isNotEmpty).toList();
+      return parts.join(' ').toLowerCase();
+    }
+    return (data?.toString() ?? '').toLowerCase();
+  }
+
+  bool _isExplicitSocketAuthError(dynamic data) {
+    final msg = _socketAuthErrorText(data);
+    if (msg.isEmpty) return false;
+    return msg.contains('unauthorized') ||
+        msg.contains('invalid token') ||
+        msg.contains('jwt expired') ||
+        msg.contains('jwt malformed') ||
+        msg.contains('authorization required') ||
+        msg.contains('driver token required');
   }
 
   /// Обёртка для GET-запросов с проверкой 401 и таймаутом
@@ -4309,9 +4407,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       unawaited(_checkBlockStatus());
     });
     s.onConnectError((data) {
-      // Если ошибка связана с невалидным/истёкшим токеном — разлогиниваем
-      final msg = data?.toString().toLowerCase() ?? '';
-      if (msg.contains('unauthorized') || msg.contains('jwt') || msg.contains('token')) {
+      // Не разлогиниваем при обычных сетевых сбоях сокета.
+      // Выходим только если сервер явно сообщил об ошибке авторизации.
+      if (_isExplicitSocketAuthError(data)) {
         _handleSessionExpired();
       }
     });
@@ -4427,7 +4525,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     if (_fetchingOrderDetails) return;
     _fetchingOrderDetails = true;
     try {
-      final res = await _authGet(Uri.parse('$_apiBaseUrl/api/orders/$orderId'));
+      // До принятия заказа сервер может временно не отдавать детали водителю.
+      // Это не проблема сессии, поэтому не используем _authGet здесь.
+      final res = await http.get(
+        Uri.parse('$_apiBaseUrl/api/orders/$orderId'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 15));
       if (res.statusCode < 200 || res.statusCode >= 300) return;
       final map = jsonDecode(res.body) as Map<String, dynamic>;
       final orderRaw = map['order'];
@@ -6568,12 +6671,9 @@ class _PreorderBannerState extends State<_PreorderBanner> {
     // Formatted time
     final timeStr =
         '${sa.hour.toString().padLeft(2, '0')}:${sa.minute.toString().padLeft(2, '0')}';
-    final isToday = sa.year == now.year &&
-        sa.month == now.month &&
-        sa.day == now.day;
-    final isTomorrow = sa.year == now.year &&
-        sa.month == now.month &&
-        sa.day == now.day + 1;
+    final isToday = _isSameCalendarDay(sa, now);
+    final tomorrow = DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+    final isTomorrow = _isSameCalendarDay(sa, tomorrow);
     final dateLabel = isToday
         ? 'Сегодня'
         : isTomorrow

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, Param, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { EventsGateway } from './events.gateway';
 import { DriversService } from './drivers.service';
 import { CreateOrderInput, OrdersService } from './orders.service';
@@ -67,15 +67,15 @@ export class OrdersController {
     if (payload?.role === 'client') {
       const clientId = String(payload.phone || '').trim();
       if (!clientId || order.clientId !== clientId) {
-        throw new UnauthorizedException('Access denied');
+        throw new ForbiddenException('Access denied');
       }
     } else if (payload?.role === 'driver') {
       const phone = String(payload.phone || '').trim();
       if (!phone || order.driverPhone !== phone) {
-        throw new UnauthorizedException('Access denied');
+        throw new ForbiddenException('Access denied');
       }
     } else if (payload?.role !== 'admin') {
-      throw new UnauthorizedException('Access denied');
+      throw new ForbiddenException('Access denied');
     }
     // Добавляем координаты водителя если заказ активный
     let driverLat: number | null = null;

@@ -19,7 +19,7 @@ import 'package:yandex_mapkit/yandex_mapkit.dart';
 
 const _apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://api.trezv7777.ru',
+  defaultValue: 'http://194.67.84.155',
 );
 const _systemRidePrices = ['от 2500₽/час', 'от 9000₽/5ч', 'от 2500₽/час'];
 

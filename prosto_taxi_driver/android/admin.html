@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https:; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http: https:; img-src 'self' data: http: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
   <title>Admin Panel</title>
   <style>
     :root{
@@ -1841,6 +1841,19 @@
           openLoginModal();
           throw new Error('ADMIN_AUTH_EXPIRED');
         }
+        if (!response.ok) {
+          let message = `HTTP ${response.status}`;
+          try {
+            const data = await response.clone().json();
+            message = data?.message || data?.error || message;
+          } catch (_) {
+            try {
+              const text = (await response.clone().text()).trim();
+              if (text) message = text.slice(0, 300);
+            } catch (_) {}
+          }
+          throw new Error(message);
+        }
         return response;
       }
       const modal = document.getElementById('addModal');
@@ -2415,9 +2428,13 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phone, fullName: fio, email, rating: 5 }),
           });
-        } catch (_) {}
-        closeModal();
-        loadDrivers();
+          closeModal();
+          loadDrivers();
+        } catch (e) {
+          if (e?.message !== 'ADMIN_AUTH_EXPIRED' && e?.message !== 'NO_ADMIN_TOKEN') {
+            alert(`Не удалось сохранить водителя: ${e?.message || e}`);
+          }
+        }
       });
 
       modal.addEventListener('click', (e) => {
@@ -2780,8 +2797,11 @@
             const msg = document.getElementById('tariffSaveMsg');
             if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2500); }
             renderPriceTariffCards();
-          } catch (_) {
+          } catch (e) {
             if (btn) btn.textContent = 'Ошибка!';
+            if (e?.message !== 'ADMIN_AUTH_EXPIRED' && e?.message !== 'NO_ADMIN_TOKEN') {
+              alert(`Не удалось сохранить тарифы: ${e?.message || e}`);
+            }
           } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
           }
@@ -2919,15 +2939,21 @@
         const amount = Number(payoutAmount?.value || 0);
         const orderId = (payoutOrder?.value || '').trim();
         if (!driverPhone || !Number.isFinite(amount) || amount <= 0) return;
-        await adminFetch(`${API_BASE}/admin/payouts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ driverPhone, amount, orderId }),
-        });
-        if (payoutDriver) payoutDriver.value = '';
-        if (payoutAmount) payoutAmount.value = '';
-        if (payoutOrder) payoutOrder.value = '';
-        loadPayouts();
+        try {
+          await adminFetch(`${API_BASE}/admin/payouts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ driverPhone, amount, orderId }),
+          });
+          if (payoutDriver) payoutDriver.value = '';
+          if (payoutAmount) payoutAmount.value = '';
+          if (payoutOrder) payoutOrder.value = '';
+          loadPayouts();
+        } catch (e) {
+          if (e?.message !== 'ADMIN_AUTH_EXPIRED' && e?.message !== 'NO_ADMIN_TOKEN') {
+            alert(`Не удалось создать выплату: ${e?.message || e}`);
+          }
+        }
       });
 
       function setPage(pageKey) {
@@ -3557,7 +3583,7 @@
         e.preventDefault();
         const login = (loginEmail?.value || '').trim();
         const password = (loginPassword?.value || '').trim();
-        if (!login || !password) return;
+        if (!login || !password) { alert('Введите логин и пароль'); return; }
         try {
           const res = await fetch(`${API_BASE}/auth/otp/admin/login`, {
             method: 'POST',
@@ -3573,8 +3599,12 @@
             loadClients();
             loadTariffs();
             loadPayouts();
+          } else {
+            alert(data?.message || 'Неверный логин или пароль');
           }
-        } catch (_) {}
+        } catch (err) {
+          alert('Ошибка подключения к серверу: ' + (err?.message || err));
+        }
       });
 
       const editSaveBtn = document.getElementById('editSave');

@@ -2085,6 +2085,15 @@
             if (filterValue === 'docsSigned') return profile.docsSigned === true;
             return true;
           });
+          filtered.sort((a, b) => {
+            const score = (driver) => {
+              if (driver.blocked) return 0;
+              if ((driver.status || '') === 'online') return 3;
+              if ((driver.status || '') === 'busy') return 2;
+              return 1;
+            };
+            return score(b) - score(a);
+          });
           if (!filtered.length) {
             tbody.innerHTML = '<tr><td class="colN">1</td><td></td><td>Нет подходящих водителей</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
             return;
@@ -2167,6 +2176,18 @@
                 });
                 loadDrivers();
               });
+              const deleteBtn = document.createElement('button');
+              deleteBtn.className = 'btn';
+              deleteBtn.title = 'Удалить водителя';
+              deleteBtn.textContent = '🗑';
+              deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`Удалить водителя ${d.phone}?`)) return;
+                await adminFetch(`${API_BASE}/admin/drivers/${encodeURIComponent(d.phone)}/delete`, {
+                  method: 'POST',
+                });
+                loadDrivers();
+              });
               if (regStatus === 'pending') {
                 const approveBtn = document.createElement('button');
                 approveBtn.className = 'btn';
@@ -2191,7 +2212,7 @@
                 td.appendChild(approveBtn);
                 td.appendChild(rejectBtn);
               }
-              if (profile.passportFrontBase64 || profile.passportRegBase64 || profile.selfieBase64) {
+              if (profile.passportFrontBase64 || profile.passportRegBase64 || profile.driverLicenseBackBase64 || profile.selfieBase64) {
                 const photoBtn = document.createElement('button');
                 photoBtn.className = 'btn';
                 photoBtn.textContent = '📷 Фото';
@@ -2211,10 +2232,12 @@
                   let html = '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
                   const passportFront = safeBase64(profile.passportFrontBase64);
                   const passportReg = safeBase64(profile.passportRegBase64);
+                  const driverLicenseBack = safeBase64(profile.driverLicenseBackBase64);
                   const selfie = safeBase64(profile.selfieBase64);
                   if (passportFront) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${passportFront}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Паспорт (главная)"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Паспорт</div></div>`;
-                  if (passportReg) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${passportReg}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Вод. удостоверение"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Вод. удост.</div></div>`;
-                  if (selfie) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${selfie}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Селфи с паспортом"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Селфи</div></div>`;
+                  if (passportReg) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${passportReg}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Вод. удостоверение (перед)"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Права спереди</div></div>`;
+                  if (driverLicenseBack) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${driverLicenseBack}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Вод. удостоверение (оборот)"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Права сзади</div></div>`;
+                  if (selfie) html += `<div style="text-align:center;"><img src="data:image/jpeg;base64,${selfie}" style="height:140px;border-radius:10px;border:1px solid rgba(255,255,255,.1);cursor:pointer;" title="Селфи с правами"><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Селфи с правами</div></div>`;
                   html += '</div>';
                   photoTd.innerHTML = html;
                   photoTr.appendChild(photoTd);
@@ -2224,6 +2247,7 @@
               }
               td.appendChild(historyBtn);
               td.appendChild(btn);
+              td.appendChild(deleteBtn);
               tr.appendChild(td);
             }
             tbody.appendChild(tr);
@@ -2338,6 +2362,7 @@
           const fio = [c.fullName, c.name, c.lastName, c.patronymic].filter(Boolean).join(' ') || '—';
           const phone = c.phone || c.id || '—';
           const orderCount = c.orderCount != null ? String(c.orderCount) : '—';
+          const blocked = c.blocked === true;
           tr.innerHTML = `
             <td class="colN">${i + 1}</td>
             <td>${esc(fio)}</td>
@@ -2355,7 +2380,21 @@
             const id = c.id || c.phone;
             if (id) await openHistory('client', id);
           });
+          const blockBtn = document.createElement('button');
+          blockBtn.className = 'btn';
+          blockBtn.textContent = blocked ? 'Разблок' : 'Блок';
+          blockBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = c.id || c.phone;
+            if (!id) return;
+            await adminFetch(`${API_BASE}/admin/clients/${encodeURIComponent(id)}/${blocked ? 'unblock' : 'block'}`, {
+              method: 'POST',
+            });
+            loadClientsPage();
+            loadClients();
+          });
           actTd.appendChild(historyBtn);
+          actTd.appendChild(blockBtn);
           clientsTbody.appendChild(tr);
         });
       }
@@ -2573,6 +2612,7 @@
             const status = o?.status || '-';
             const price = formatMoney(o?.priceFrom);
             const driver = o?.driverPhone || '—';
+            const client = o?.clientId || '—';
             const pay = o?.paymentStatus || '—';
             const created = o?.createdAt ? formatDate(o.createdAt) : '';
             const shortId = (o.id || '').slice(0, 8);
@@ -2602,6 +2642,7 @@
               <div class="orderDetails">
                 <span class="orderPrice">${price}</span>
                 <span>Водитель: ${esc(driver)}</span>
+                <span>Клиент: ${esc(client)}</span>
                 <span>Оплата: ${esc(pay)}</span>
                 ${created ? `<span>${esc(created)}</span>` : ''}
               </div>
@@ -2630,7 +2671,7 @@
             b.addEventListener('click', async () => {
               const id = b.getAttribute('data-assign');
               if (!id) return;
-              const driverPhone = prompt('Телефон водителя для назначения?');
+              const driverPhone = (prompt('Телефон водителя для назначения?') || '').replace(/\D/g, '');
               if (!driverPhone) return;
               await adminFetch(`${API_BASE}/admin/orders/${id}/assign`, {
                 method: 'POST',
@@ -3155,6 +3196,7 @@
               const avB64 = safeBase64(p.avatarBase64 || p.selfieBase64 || p.passportFrontBase64);
               const passportFront = safeBase64(p.passportFrontBase64);
               const passportReg = safeBase64(p.passportRegBase64);
+              const driverLicenseBack = safeBase64(p.driverLicenseBackBase64);
               const selfie = safeBase64(p.selfieBase64);
               const avatarHtml = avB64
                 ? `<img src="data:image/jpeg;base64,${avB64}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,178,74,.4);flex-shrink:0;" title="Фото водителя">`
@@ -3178,16 +3220,18 @@
                   <span>Email: <b style="color:#fff;">${esc(p.email || '—')}</b></span>
                   <span>Документы: <b style="color:${p.docsSigned ? 'rgba(100,220,140,.9)' : 'rgba(225,27,34,.8)'};">${p.docsSigned ? 'Подписаны' : 'Нет'}</b></span>
                 </div>
-                ${(passportFront || passportReg || selfie) ? `
-                <div style="display:flex;gap:6px;padding:8px 0 4px;">
+                ${(passportFront || passportReg || driverLicenseBack || selfie) ? `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 0 4px;">
                   ${passportFront ? `<a href="data:image/jpeg;base64,${passportFront}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${passportFront}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Паспорт (главная)"></a>` : ''}
-                  ${passportReg ? `<a href="data:image/jpeg;base64,${passportReg}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${passportReg}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Вод. удостоверение"></a>` : ''}
-                  ${selfie ? `<a href="data:image/jpeg;base64,${selfie}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${selfie}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Селфи с паспортом"></a>` : ''}
+                  ${passportReg ? `<a href="data:image/jpeg;base64,${passportReg}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${passportReg}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Вод. удостоверение (перед)"></a>` : ''}
+                  ${driverLicenseBack ? `<a href="data:image/jpeg;base64,${driverLicenseBack}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${driverLicenseBack}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Вод. удостоверение (оборот)"></a>` : ''}
+                  ${selfie ? `<a href="data:image/jpeg;base64,${selfie}" target="_blank" style="flex:1;"><img src="data:image/jpeg;base64,${selfie}" style="width:100%;height:80px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.1);" title="Селфи с правами"></a>` : ''}
                 </div>
-                <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.35);display:flex;gap:6px;">
+                <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.35);display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                   ${passportFront ? '<span style="flex:1;text-align:center;">Паспорт</span>' : ''}
-                  ${passportReg ? '<span style="flex:1;text-align:center;">Вод. удост.</span>' : ''}
-                  ${selfie ? '<span style="flex:1;text-align:center;">Селфи</span>' : ''}
+                  ${passportReg ? '<span style="flex:1;text-align:center;">Права спереди</span>' : ''}
+                  ${driverLicenseBack ? '<span style="flex:1;text-align:center;">Права сзади</span>' : ''}
+                  ${selfie ? '<span style="flex:1;text-align:center;">Селфи с правами</span>' : ''}
                 </div>
                 ` : '<div style="font-size:11px;color:rgba(255,178,74,.6);font-weight:700;padding:4px 0;">⚠ Фото документов не загружены</div>'}
                 <div style="display:flex;gap:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06);">
@@ -3231,7 +3275,7 @@
               const stColor = regStatus === 'completed' ? 'rgba(100,220,140,.9)' : regStatus === 'rejected' ? 'rgba(225,27,34,.8)' : 'rgba(255,178,74,.9)';
               const stLabel = regStatus === 'completed' ? 'Подтверждён' : regStatus === 'rejected' ? 'Отклонён' : 'Ожидает';
               const tr = document.createElement('tr');
-              const hasPhotos = p.passportFrontBase64 || p.selfieBase64;
+              const hasPhotos = p.passportFrontBase64 || p.passportRegBase64 || p.driverLicenseBackBase64 || p.selfieBase64;
               const photoBadge = hasPhotos
                 ? '<span style="color:rgba(100,220,140,.9);font-weight:800;font-size:11px;">Есть фото</span>'
                 : '<span style="color:rgba(255,178,74,.7);font-weight:700;font-size:11px;">Нет фото</span>';

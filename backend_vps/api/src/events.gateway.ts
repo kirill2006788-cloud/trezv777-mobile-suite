@@ -184,12 +184,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       const delivered: string[] = [];
       driverPhones.forEach((phone) => {
         if (!this.hasLiveDriverSocket(phone)) return;
-        this.server.to(`driver:${phone}`).emit('order:new', { order });
+        this.server.to(`driver:${phone}`).emit('order:new', {
+          order,
+          notifiedAt: new Date().toISOString(),
+        });
         delivered.push(phone);
       });
       return delivered;
     }
-    this.server.to('drivers').emit('order:new', { order });
+    this.server.to('drivers').emit('order:new', {
+      order,
+      notifiedAt: new Date().toISOString(),
+    });
     return [];
   }
 
@@ -378,8 +384,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
 
   // ─── Блокировка водителя ────────────────────────────────────
 
-  emitDriverBlocked(phone: string) {
-    this.server.to(`driver:${phone}`).emit('driver:blocked', { phone });
+  emitDriverBlocked(phone: string, payload?: { reason?: string; until?: string | null }) {
+    this.server.to(`driver:${phone}`).emit('driver:blocked', {
+      phone,
+      reason: payload?.reason || 'manual',
+      until: payload?.until || null,
+    });
   }
 
   emitDriverUnblocked(phone: string) {
@@ -440,13 +450,37 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     // Проверяем блокировку
     const isBlocked = await this.drivers.isBlocked(user.phone);
     if (isBlocked) {
-      client.emit('driver:blocked', { phone: user.phone });
+      const meta = await this.drivers.getBlockMeta(user.phone);
+      client.emit('driver:blocked', {
+        phone: user.phone,
+        reason: meta?.reason || 'manual',
+        until: meta?.until || null,
+      });
       await this.drivers.setStatus(user.phone, 'offline');
       return { ok: false, error: 'BLOCKED', blocked: true };
     }
     const status = body?.status;
     if (status !== 'online' && status !== 'offline' && status !== 'busy') {
       return { ok: false, error: 'invalid status' };
+    }
+    if (status === 'online') {
+      const earnings = await this.orders.getDriverEarnings(user.phone);
+      const earningsLimit = await this.orders.getEarningsLimit();
+      const commission = Number(earnings.commission || 0);
+      if (commission >= earningsLimit) {
+        await this.drivers.setStatus(user.phone, 'offline');
+        client.emit('driver:earnings-limit', {
+          phone: user.phone,
+          commission,
+          limit: earningsLimit,
+        });
+        return {
+          ok: false,
+          error: 'EARNINGS_LIMIT_REACHED',
+          commission,
+          limit: earningsLimit,
+        };
+      }
     }
     await this.drivers.setStatus(user.phone, status);
     return { ok: true };
@@ -470,6 +504,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       return { ok: true, order };
     } catch (err: any) {
       const message = err?.message || err?.response?.message || 'Order already taken';
+      if (message === 'DRIVER_BLOCKED') {
+        const meta = await this.drivers.getBlockMeta(user.phone.trim());
+        client.emit('driver:blocked', {
+          phone: user.phone.trim(),
+          reason: meta?.reason || 'manual',
+          until: meta?.until || null,
+        });
+        return { ok: false, error: 'DRIVER_BLOCKED', message };
+      }
       // Лимит заработка — отдельный код ошибки для водителя
       if (message === 'EARNINGS_LIMIT_REACHED') {
         return { ok: false, error: 'EARNINGS_LIMIT_REACHED', message };
@@ -492,6 +535,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     if (!orderId) return { ok: false, error: 'orderId required' };
 
     await this.orders.declineOrder(orderId, user.phone.trim());
+    const strike = await this.drivers.registerMissedOrder(user.phone.trim());
+    if (strike.blocked) {
+      client.emit('driver:blocked', {
+        phone: user.phone.trim(),
+        reason: 'missed_orders',
+        until: strike.until || null,
+      });
+    }
     try {
       const order = await this.orders.getOrder(orderId);
       if (order.status === 'searching') {

@@ -39,6 +39,18 @@ export class DriversService {
     return `driver:rating:${phone}`;
   }
 
+  private blockKey(phone: string) {
+    return `driver:block:${phone}`;
+  }
+
+  private blockMetaKey(phone: string) {
+    return `driver:block_meta:${phone}`;
+  }
+
+  private missedOrdersKey(phone: string) {
+    return `driver:missed_orders:${phone}`;
+  }
+
   async setStatus(phone: string, status: DriverStatus) {
     await this.redis.client.hset(this.statusKey(), phone, status);
     await this.redis.client.sadd(this.allKey(), phone);
@@ -84,7 +96,7 @@ export class DriversService {
     const onlyPhones = (phones as Array<[string, string]>).map((p: [string, string]) => p[0]);
     const pipeline = this.redis.client.pipeline();
     onlyPhones.forEach((p) => pipeline.exists(this.onlineKey(p)));
-    onlyPhones.forEach((p) => pipeline.exists(`driver:block:${p}`));
+    onlyPhones.forEach((p) => pipeline.exists(this.blockKey(p)));
     const results = await pipeline.exec();
     const online = new Set<string>();
     results?.slice(0, onlyPhones.length).forEach(([, res], idx) => {
@@ -102,7 +114,7 @@ export class DriversService {
     if (!phones.length) return [];
     const pipeline = this.redis.client.pipeline();
     phones.forEach((p) => pipeline.exists(this.onlineKey(p)));
-    phones.forEach((p) => pipeline.exists(`driver:block:${p}`));
+    phones.forEach((p) => pipeline.exists(this.blockKey(p)));
     const results = await pipeline.exec();
     const online = new Set<string>();
     results?.slice(0, phones.length).forEach(([, res], idx) => {
@@ -121,25 +133,78 @@ export class DriversService {
     const pipeline = this.redis.client.pipeline();
     phones.forEach((p) => pipeline.hget(this.statusKey(), p));
     phones.forEach((p) => pipeline.get(this.locKey(p)));
-    phones.forEach((p) => pipeline.exists(`driver:block:${p}`));
+    phones.forEach((p) => pipeline.exists(this.blockKey(p)));
+    phones.forEach((p) => pipeline.get(this.blockMetaKey(p)));
     const results = await pipeline.exec();
     const statuses = results?.slice(0, phones.length).map((r) => r?.[1]) || [];
     const locs = results?.slice(phones.length, phones.length * 2).map((r) => r?.[1]) || [];
-    const blocks = results?.slice(phones.length * 2).map((r) => r?.[1]) || [];
+    const blocks = results?.slice(phones.length * 2, phones.length * 3).map((r) => r?.[1]) || [];
+    const blockMetas = results?.slice(phones.length * 3).map((r) => r?.[1]) || [];
     return phones.map((phone, idx) => {
       const locRaw = typeof locs[idx] === 'string' ? locs[idx] : null;
+      const blockMetaRaw = typeof blockMetas[idx] === 'string' ? blockMetas[idx] : null;
+      let blockMeta: any = null;
+      try { if (blockMetaRaw) blockMeta = JSON.parse(blockMetaRaw); } catch { blockMeta = null; }
       return {
         phone,
         status: (statuses[idx] as DriverStatus) || 'offline',
         location: locRaw ? JSON.parse(locRaw) : null,
         blocked: blocks[idx] === 1,
+        blockReason: blockMeta?.reason || null,
+        blockUntil: blockMeta?.until || null,
       };
     });
   }
 
   async isBlocked(phone: string): Promise<boolean> {
-    const val = await this.redis.client.exists(`driver:block:${phone}`);
+    const val = await this.redis.client.exists(this.blockKey(phone));
     return val === 1;
+  }
+
+  async getBlockMeta(phone: string): Promise<{ reason?: string; until?: string | null } | null> {
+    const raw = await this.redis.client.get(this.blockMetaKey(phone));
+    if (!raw) return null;
+    try {
+      const meta = JSON.parse(raw) as { reason?: string; until?: string | null };
+      return {
+        reason: typeof meta.reason === 'string' ? meta.reason : undefined,
+        until: typeof meta.until === 'string' ? meta.until : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async blockTemporarily(phone: string, reason: string, hours: number) {
+    const ttlSec = Math.max(60, Math.round(hours * 60 * 60));
+    const until = new Date(Date.now() + ttlSec * 1000).toISOString();
+    await this.redis.client.set(this.blockKey(phone), '1', 'EX', ttlSec);
+    await this.redis.client.set(
+      this.blockMetaKey(phone),
+      JSON.stringify({ reason, until }),
+      'EX',
+      ttlSec,
+    );
+    await this.setStatus(phone, 'offline');
+  }
+
+  async clearBlock(phone: string) {
+    await this.redis.client.del(this.blockKey(phone));
+    await this.redis.client.del(this.blockMetaKey(phone));
+    await this.redis.client.del(this.missedOrdersKey(phone));
+  }
+
+  async registerMissedOrder(phone: string): Promise<{ count: number; blocked: boolean; until?: string }> {
+    const key = this.missedOrdersKey(phone);
+    const count = await this.redis.client.incr(key);
+    await this.redis.client.expire(key, 60 * 60 * 48);
+    if (count >= 3) {
+      await this.blockTemporarily(phone, 'missed_orders', 48);
+      await this.redis.client.del(key);
+      const meta = await this.getBlockMeta(phone);
+      return { count, blocked: true, until: meta?.until || undefined };
+    }
+    return { count, blocked: false };
   }
 
   async getProfile(phone: string) {

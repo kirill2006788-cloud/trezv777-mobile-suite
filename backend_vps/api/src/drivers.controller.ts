@@ -53,12 +53,14 @@ export class DriversController {
     const stats = await this.orders.getDriverStats(normalized);
     const baseProfile = profile && typeof profile === 'object' ? (profile as Record<string, unknown>) : {};
     const blocked = await this.redis.client.exists(`driver:block:${normalized}`);
+    const blockMeta = await this.drivers.getBlockMeta(normalized);
     const earningsLimit = Number(await this.redis.client.get('settings:earnings_limit') || 15000);
     const safeProfile = {
       ...baseProfile,
       avatarBase64: (baseProfile as any).avatarBase64 || photosBackup.avatarBase64 || null,
       passportFrontBase64: (baseProfile as any).passportFrontBase64 || photosBackup.passportFrontBase64 || null,
       passportRegBase64: (baseProfile as any).passportRegBase64 || photosBackup.passportRegBase64 || null,
+      driverLicenseBackBase64: (baseProfile as any).driverLicenseBackBase64 || photosBackup.driverLicenseBackBase64 || null,
       selfieBase64: (baseProfile as any).selfieBase64 || photosBackup.selfieBase64 || null,
       rating: rating.avg,
       ratingCount: rating.count,
@@ -70,8 +72,10 @@ export class DriversController {
       acceptedOrders: stats.acceptedOrders,
       trips: stats.trips,
       blocked: blocked === 1,
+      blockReason: blockMeta?.reason || null,
+      blockUntil: blockMeta?.until || null,
       earningsLimit,
-      limitReached: Number(earnings.net || 0) >= earningsLimit,
+      limitReached: Number(earnings.commission || 0) >= earningsLimit,
     };
     return { ok: true, profile: safeProfile, bonus };
   }
@@ -144,6 +148,7 @@ export class DriversController {
       avatarBase64?: string | null;
       passportFrontBase64?: string | null;
       passportRegBase64?: string | null;
+      driverLicenseBackBase64?: string | null;
       selfieBase64?: string | null;
       docsSigned?: boolean;
       registrationStatus?: string;
@@ -155,6 +160,7 @@ export class DriversController {
     if (body.phone && body.phone.trim() && body.phone.trim() !== phone) {
       throw new ForbiddenException('Driver token mismatch');
     }
+    const requestedRegistrationStatus = (body.registrationStatus || '').toString().trim().toLowerCase();
     const referralCode = (body.referralCode || '').toString().trim().replace(/\D/g, '');
     const existing = await this.drivers.getProfile(phone);
     if (referralCode && referralCode !== phone && !(existing as any)?.referralCode) {
@@ -168,6 +174,15 @@ export class DriversController {
         }
       }
     }
+    const existingRegistrationStatus = ((existing as any)?.registrationStatus || '').toString().trim().toLowerCase();
+    let nextRegistrationStatus = existingRegistrationStatus || 'incomplete';
+    // Водитель может перевести заявку только в pending/incomplete.
+    // completed/rejected выставляет только админ.
+    if (requestedRegistrationStatus === 'pending' || requestedRegistrationStatus === 'incomplete') {
+      nextRegistrationStatus = requestedRegistrationStatus;
+    } else if (!nextRegistrationStatus) {
+      nextRegistrationStatus = 'incomplete';
+    }
     const profile = {
       phone,
       fullName: (body.fullName || '').toString(),
@@ -176,9 +191,10 @@ export class DriversController {
       avatarBase64: body.avatarBase64 ?? (existing as any)?.avatarBase64 ?? null,
       passportFrontBase64: body.passportFrontBase64 ?? (existing as any)?.passportFrontBase64 ?? null,
       passportRegBase64: body.passportRegBase64 ?? (existing as any)?.passportRegBase64 ?? null,
+      driverLicenseBackBase64: body.driverLicenseBackBase64 ?? (existing as any)?.driverLicenseBackBase64 ?? null,
       selfieBase64: body.selfieBase64 ?? (existing as any)?.selfieBase64 ?? null,
       docsSigned: Boolean(body.docsSigned),
-      registrationStatus: (existing as any)?.registrationStatus || 'incomplete',
+      registrationStatus: nextRegistrationStatus,
       referralCount: Number.isFinite(Number((existing as any)?.referralCount))
         ? Number((existing as any)?.referralCount)
         : 0,
@@ -190,6 +206,7 @@ export class DriversController {
       avatarBase64: profile.avatarBase64 || null,
       passportFrontBase64: profile.passportFrontBase64 || null,
       passportRegBase64: profile.passportRegBase64 || null,
+      driverLicenseBackBase64: profile.driverLicenseBackBase64 || null,
       selfieBase64: profile.selfieBase64 || null,
       updatedAt: new Date().toISOString(),
     };

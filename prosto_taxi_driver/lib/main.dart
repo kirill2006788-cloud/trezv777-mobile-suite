@@ -99,6 +99,7 @@ const _preorderPrefsKey = 'driver_preorder_v1';
 const _iosPushChannel = MethodChannel('ru.prostotaxi.driver/push');
 
 final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+final AudioPlayer _orderNotificationPlayer = AudioPlayer();
 const AndroidNotificationChannel _orderChannel = AndroidNotificationChannel(
   'orders',
   'Новые заказы',
@@ -180,6 +181,20 @@ NotificationDetails _orderNotificationDetails() {
       interruptionLevel: InterruptionLevel.timeSensitive,
     ),
   );
+}
+
+Future<void> _playIncomingOrderSound() async {
+  try {
+    await _orderNotificationPlayer.stop();
+    await _orderNotificationPlayer.setReleaseMode(ReleaseMode.stop);
+    await _orderNotificationPlayer.play(AssetSource('sounds/fantastic_siren.mp3'));
+  } catch (_) {}
+}
+
+Future<void> _stopIncomingOrderSound() async {
+  try {
+    await _orderNotificationPlayer.stop();
+  } catch (_) {}
 }
 
 class _AuthStore {
@@ -847,6 +862,7 @@ class _DriverProfileData {
     this.avatarBytes,
     this.passportFrontBytes,
     this.passportRegBytes,
+    this.driverLicenseBackBytes,
     this.selfieBytes,
     this.earnedGross = 0,
     this.earnedCommission = 0,
@@ -874,6 +890,7 @@ class _DriverProfileData {
   final Uint8List? avatarBytes;
   final Uint8List? passportFrontBytes;
   final Uint8List? passportRegBytes;
+  final Uint8List? driverLicenseBackBytes;
   final Uint8List? selfieBytes;
 
   _DriverProfileData copyWith({
@@ -897,6 +914,7 @@ class _DriverProfileData {
     Uint8List? avatarBytes,
     Uint8List? passportFrontBytes,
     Uint8List? passportRegBytes,
+    Uint8List? driverLicenseBackBytes,
     Uint8List? selfieBytes,
     bool clearAvatar = false,
   }) {
@@ -921,6 +939,7 @@ class _DriverProfileData {
       avatarBytes: clearAvatar ? null : (avatarBytes ?? this.avatarBytes),
       passportFrontBytes: passportFrontBytes ?? this.passportFrontBytes,
       passportRegBytes: passportRegBytes ?? this.passportRegBytes,
+      driverLicenseBackBytes: driverLicenseBackBytes ?? this.driverLicenseBackBytes,
       selfieBytes: selfieBytes ?? this.selfieBytes,
     );
   }
@@ -1057,6 +1076,7 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
                 : base64Decode(avatarBase64),
             passportFrontBytes: _decodeBase64(map['passportFrontBase64']) ?? _data.passportFrontBytes,
             passportRegBytes: _decodeBase64(map['passportRegBase64']) ?? _data.passportRegBytes,
+            driverLicenseBackBytes: _decodeBase64(map['driverLicenseBackBase64']) ?? _data.driverLicenseBackBytes,
             selfieBytes: _decodeBase64(map['selfieBase64']) ?? _data.selfieBytes,
           );
         });
@@ -1125,6 +1145,7 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
               : base64Decode(avatarBase64),
           passportFrontBytes: _decodeBase64(profile['passportFrontBase64']) ?? _data.passportFrontBytes,
           passportRegBytes: _decodeBase64(profile['passportRegBase64']) ?? _data.passportRegBytes,
+          driverLicenseBackBytes: _decodeBase64(profile['driverLicenseBackBase64']) ?? _data.driverLicenseBackBytes,
           selfieBytes: _decodeBase64(profile['selfieBase64']) ?? _data.selfieBytes,
         );
       });
@@ -1146,6 +1167,7 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
         'avatarBase64': _data.avatarBytes != null ? base64Encode(_data.avatarBytes!) : null,
         'passportFrontBase64': _data.passportFrontBytes != null ? base64Encode(_data.passportFrontBytes!) : null,
         'passportRegBase64': _data.passportRegBytes != null ? base64Encode(_data.passportRegBytes!) : null,
+        'driverLicenseBackBase64': _data.driverLicenseBackBytes != null ? base64Encode(_data.driverLicenseBackBytes!) : null,
         'selfieBase64': _data.selfieBytes != null ? base64Encode(_data.selfieBytes!) : null,
       };
       SharedPreferences.getInstance().then((p) => p.setString(_profilePrefsKey, jsonEncode(cacheMap)));
@@ -1179,6 +1201,7 @@ class _DriverProfilePageState extends State<_DriverProfilePage> {
       'avatarBase64': data.avatarBytes == null ? null : base64Encode(data.avatarBytes!),
       'passportFrontBase64': data.passportFrontBytes == null ? null : base64Encode(data.passportFrontBytes!),
       'passportRegBase64': data.passportRegBytes == null ? null : base64Encode(data.passportRegBytes!),
+      'driverLicenseBackBase64': data.driverLicenseBackBytes == null ? null : base64Encode(data.driverLicenseBackBytes!),
       'selfieBase64': data.selfieBytes == null ? null : base64Encode(data.selfieBytes!),
     };
     final prefs = await SharedPreferences.getInstance();
@@ -2000,6 +2023,7 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
   Uint8List? _avatarBytes;
   Uint8List? _passportFrontBytes;
   Uint8List? _passportRegBytes;
+  Uint8List? _driverLicenseBackBytes;
   Uint8List? _selfieBytes;
   bool _docsSigned = false;
   /// Статус регистрации с сервера (не меняется локально до сохранения)
@@ -2015,6 +2039,7 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
     _avatarBytes = widget.initial.avatarBytes;
     _passportFrontBytes = widget.initial.passportFrontBytes;
     _passportRegBytes = widget.initial.passportRegBytes;
+    _driverLicenseBackBytes = widget.initial.driverLicenseBackBytes;
     _selfieBytes = widget.initial.selfieBytes;
     _docsSigned = widget.initial.docsSigned;
     _serverRegistrationStatus = widget.initial.registrationStatus;
@@ -2155,6 +2180,7 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
         avatarBytes: _avatarBytes,
         passportFrontBytes: _passportFrontBytes,
         passportRegBytes: _passportRegBytes,
+        driverLicenseBackBytes: _driverLicenseBackBytes,
         selfieBytes: _selfieBytes,
       );
       Navigator.of(context).pop(next);
@@ -2163,11 +2189,14 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
     final hasRequired = _fioController.text.trim().isNotEmpty &&
         _innController.text.trim().isNotEmpty &&
         _passportController.text.trim().isNotEmpty;
-    final hasPhotos = _passportFrontBytes != null && _selfieBytes != null;
+    final hasPhotos = _passportFrontBytes != null &&
+        _passportRegBytes != null &&
+        _driverLicenseBackBytes != null &&
+        _selfieBytes != null;
     final nextStatus = _docsSigned && hasRequired && hasPhotos ? 'pending' : 'incomplete';
     if (!hasPhotos && _docsSigned && hasRequired) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Загрузите фото паспорта и селфи для завершения регистрации')),
+        const SnackBar(content: Text('Загрузите 4 фото документов для завершения регистрации')),
       );
     }
     final next = widget.initial.copyWith(
@@ -2180,6 +2209,7 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
       avatarBytes: _avatarBytes,
       passportFrontBytes: _passportFrontBytes,
       passportRegBytes: _passportRegBytes,
+      driverLicenseBackBytes: _driverLicenseBackBytes,
       selfieBytes: _selfieBytes,
     );
     Navigator.of(context).pop(next);
@@ -2362,7 +2392,7 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Загрузите фото документов и селфи с паспортом',
+                      'Загрузите 4 фото: паспорт, права спереди, права сзади и селфи с правами',
                       style: TextStyle(color: _white55, fontWeight: FontWeight.w700, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
@@ -2391,14 +2421,30 @@ class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
                             ),
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _PhotoUploadTile(
+                            label: 'Вод. удост.\n(оборот)',
+                            icon: Icons.credit_card_outlined,
+                            bytes: _driverLicenseBackBytes,
+                            onTap: locked ? null : () => _pickPhoto(
+                              'Фото водительского удостоверения (обратная сторона)',
+                              (b) => _driverLicenseBackBytes = b,
+                            ),
+                          ),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: _PhotoUploadTile(
-                            label: 'Селфи с\nпаспортом',
+                            label: 'Селфи с\nправами',
                             icon: Icons.person_outline,
                             bytes: _selfieBytes,
                             onTap: locked ? null : () => _pickPhoto(
-                              'Селфи с паспортом в руке',
+                              'Селфи с водительским удостоверением в руке',
                               (b) => _selfieBytes = b,
                             ),
                           ),
@@ -2799,6 +2845,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   String? _driverPhone;
   bool _driverOnline = false;
   bool _driverBlocked = false;
+  String? _driverBlockReason;
+  DateTime? _driverBlockUntil;
   bool _earningsLimitReached = false;
   bool _socketConnected = true; // true пока не было первого disconnect
   bool _socketEverConnected = false;
@@ -2915,6 +2963,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         msg.contains('driver token required');
   }
 
+  String _driverBlockMessage() {
+    if (_driverBlockReason == 'missed_orders') {
+      final until = _driverBlockUntil;
+      final untilText = until == null
+          ? ''
+          : '\nРазблокировка: ${until.toLocal().day.toString().padLeft(2, '0')}.'
+              '${until.toLocal().month.toString().padLeft(2, '0')} '
+              '${until.toLocal().hour.toString().padLeft(2, '0')}:'
+              '${until.toLocal().minute.toString().padLeft(2, '0')}';
+      return 'Вы пропустили 3 заказа подряд.\nДоступ к новым заказам заблокирован на 48 часов.$untilText';
+    }
+    return 'Доступ к заказам временно ограничен.\nОбратитесь в поддержку для уточнения.';
+  }
+
   /// Обёртка для GET-запросов с проверкой 401 и таймаутом
   Future<http.Response> _authGet(Uri uri) async {
     final res = await http.get(uri, headers: {'Authorization': 'Bearer ${widget.token}'}).timeout(const Duration(seconds: 15));
@@ -2946,6 +3008,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final profile = map['profile'];
       if (profile is! Map) return;
       final blocked = profile['blocked'] == true;
+      final blockReason = profile['blockReason']?.toString();
+      final blockUntil = DateTime.tryParse(profile['blockUntil']?.toString() ?? '');
       final regStatus = (profile['registrationStatus']?.toString() ?? 'incomplete');
       final limitReached = profile['limitReached'] == true;
       if (!mounted) return;
@@ -2954,6 +3018,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       setState(() {
         _registrationStatus = regStatus;
         _earningsLimitReached = limitReached;
+        _driverBlockReason = blockReason;
+        _driverBlockUntil = blockUntil;
         // Если лимит снят — убираем оверлей блокировки
         if (!limitReached && _resultOverlay == _ActionResultOverlay.earningsLimit) {
           _resultOverlay = _ActionResultOverlay.none;
@@ -2994,6 +3060,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (blocked && !_driverBlocked) {
         setState(() {
           _driverBlocked = true;
+          _driverBlockReason = blockReason;
+          _driverBlockUntil = blockUntil;
           _driverOnline = false;
           _order = null;
           _orderState = _DriverOrderUiState.incoming;
@@ -3002,6 +3070,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       } else if (!blocked && _driverBlocked) {
         setState(() {
           _driverBlocked = false;
+          _driverBlockReason = null;
+          _driverBlockUntil = null;
         });
       }
     } catch (_) {}
@@ -3085,7 +3155,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       // Восстанавливаем сокет-соединение, но НЕ меняем онлайн-статус:
       // пользователь мог выбрать «оффлайн» перед сворачиванием.
       // Просто повторно отправляем текущий статус на сервер.
-      _socket?.emit('driver:status', {'status': _driverOnline ? 'online' : 'offline'});
+      _emitDriverStatusGuarded(_driverOnline ? 'online' : 'offline');
       unawaited(_recoverActiveOrderState());
       unawaited(_checkBlockStatus());
       // Проверяем предзаказ при возобновлении
@@ -3171,6 +3241,25 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  void _emitDriverStatusGuarded(String status, {IO.Socket? socket}) {
+    final target = socket ?? _socket;
+    if (target == null) return;
+    if (status == 'online') {
+      target.emitWithAck('driver:status', {'status': status}, ack: (response) {
+        if (!mounted) return;
+        if (response is Map && response['error'] == 'EARNINGS_LIMIT_REACHED') {
+          setState(() {
+            _driverOnline = false;
+          });
+          SharedPreferences.getInstance().then((p) => p.setBool('driver_online_v1', false));
+          _showEarningsLimitOverlay();
+        }
+      });
+      return;
+    }
+    target.emit('driver:status', {'status': status});
+  }
+
   void _setDriverOnline(bool value) {
     if (_driverOnline == value) return;
     // Блокируем выход в онлайн, если регистрация не завершена
@@ -3206,7 +3295,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     setState(() {
       _driverOnline = value;
     });
-    _socket?.emit('driver:status', {'status': value ? 'online' : 'offline'});
+    _emitDriverStatusGuarded(value ? 'online' : 'offline');
     // Сохраняем онлайн-статус, чтобы восстановить при перезапуске
     SharedPreferences.getInstance().then((p) => p.setBool('driver_online_v1', value));
   }
@@ -3806,7 +3895,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _persistActiveOrder() async {
     final prefs = await SharedPreferences.getInstance();
     final order = _order;
-    if (order == null || _orderState == _DriverOrderUiState.incoming) {
+    if (order == null) {
       await prefs.remove(_activeOrderPrefsKey);
       await prefs.remove(_activeOrderStateKey);
       return;
@@ -3836,6 +3925,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       'comment': order.comment,
       'wish': order.wish,
       'scheduledAt': order.scheduledAt?.toIso8601String(),
+      'notifiedAt': order.notifiedAt?.toIso8601String(),
     };
     await prefs.setString(_activeOrderPrefsKey, jsonEncode(payload));
     await prefs.setString(_activeOrderStateKey, _stateToString(_orderState));
@@ -3854,6 +3944,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
     final restored = _orderFromMap(map);
+    if (stateRaw == 'incoming' &&
+        restored.notifiedAt != null &&
+        DateTime.now().isAfter(restored.notifiedAt!.add(const Duration(seconds: 10)))) {
+      await prefs.remove(_activeOrderPrefsKey);
+      await prefs.remove(_activeOrderStateKey);
+      return;
+    }
 
     // Не восстанавливаем, если этот заказ уже в _preorder
     if (_preorder != null && restored.id == _preorder!.id) return;
@@ -3904,6 +4001,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       'comment': order.comment,
       'wish': order.wish,
       'scheduledAt': order.scheduledAt?.toIso8601String(),
+      'notifiedAt': order.notifiedAt?.toIso8601String(),
     };
   }
 
@@ -3937,6 +4035,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       comment: (map['comment']?.toString() ?? '').trim().isNotEmpty ? map['comment'].toString().trim() : null,
       wish: (map['wish']?.toString() ?? '').trim().isNotEmpty ? map['wish'].toString().trim() : null,
       scheduledAt: DateTime.tryParse(map['scheduledAt']?.toString() ?? ''),
+      notifiedAt: DateTime.tryParse(map['notifiedAt']?.toString() ?? ''),
     );
   }
 
@@ -4223,7 +4322,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _socketConnected = true;
         _socketEverConnected = true;
       });
-      s.emit('driver:status', {'status': _driverOnline ? 'online' : 'offline'});
+      _emitDriverStatusGuarded(_driverOnline ? 'online' : 'offline', socket: s);
       unawaited(_loadActiveOrder());
     });
     s.onDisconnect((_) {
@@ -4236,7 +4335,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _socketConnected = true;
         _socketEverConnected = true;
       });
-      s.emit('driver:status', {'status': _driverOnline ? 'online' : 'offline'});
+      _emitDriverStatusGuarded(_driverOnline ? 'online' : 'offline', socket: s);
       unawaited(_recoverActiveOrderState());
     });
     s.on('order:new', (data) {
@@ -4250,6 +4349,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (hasActiveOrder) return;
       if (data is Map && data['order'] is Map) {
         final order = Map<String, dynamic>.from(data['order'] as Map);
+        order['notifiedAt'] ??= data['notifiedAt'] ?? DateTime.now().toIso8601String();
         final mapped = _mapOrder(order);
         // Не показываем заказ, если он уже сохранён как предзаказ
         if (_preorder != null && mapped.id == _preorder!.id) return;
@@ -4368,10 +4468,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
     });
     // Водитель заблокирован админом
-    s.on('driver:blocked', (_) {
+    s.on('driver:blocked', (data) {
       if (!mounted) return;
+      final payload = data is Map ? Map<String, dynamic>.from(data) : const <String, dynamic>{};
       setState(() {
         _driverBlocked = true;
+        _driverBlockReason = payload['reason']?.toString();
+        _driverBlockUntil = DateTime.tryParse(payload['until']?.toString() ?? '');
         _driverOnline = false;
         _order = null;
         _orderState = _DriverOrderUiState.incoming;
@@ -4384,7 +4487,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _driverBlocked = false;
+        _driverBlockReason = null;
+        _driverBlockUntil = null;
       });
+    });
+    s.on('driver:earnings-limit', (_) {
+      if (!mounted) return;
+      setState(() {
+        _driverOnline = false;
+      });
+      SharedPreferences.getInstance().then((p) => p.setBool('driver_online_v1', false));
+      _showEarningsLimitOverlay();
     });
     // Комиссия погашена — водитель снова может принимать заказы
     s.on('commission:cleared', (_) {
@@ -4495,6 +4608,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final kmOutside = double.tryParse(order['kmOutsideMkad']?.toString() ?? '') ?? 0.0;
     final scheduledAtRaw = order['scheduledAt']?.toString();
     final scheduledAt = scheduledAtRaw != null ? DateTime.tryParse(scheduledAtRaw) : null;
+    final notifiedAtRaw = order['notifiedAt']?.toString();
+    final createdAtRaw = order['createdAt']?.toString();
+    final notifiedAt = DateTime.tryParse(notifiedAtRaw ?? '') ?? DateTime.tryParse(createdAtRaw ?? '');
     final commentRaw = (order['comment']?.toString() ?? '').trim();
     final wishRaw = (order['wish']?.toString() ?? '').trim();
     return _DriverOrder(
@@ -4516,6 +4632,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       completedAt: completedAt,
       clientPhone: clientPhone.isNotEmpty ? clientPhone : null,
       scheduledAt: scheduledAt,
+      notifiedAt: notifiedAt,
       comment: commentRaw.isNotEmpty ? commentRaw : null,
       wish: wishRaw.isNotEmpty ? wishRaw : null,
     );
@@ -4670,6 +4787,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void _acceptOrder() {
     final order = _order;
     if (order == null) return;
+    unawaited(_stopIncomingOrderSound());
     if (_earningsLimitReached) {
       _showEarningsLimitOverlay();
       return;
@@ -4787,6 +4905,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   void _showAlreadyTakenOverlay() {
+    unawaited(_stopIncomingOrderSound());
     setState(() {
       _resultOverlay = _ActionResultOverlay.alreadyTaken;
     });
@@ -4813,6 +4932,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   void _showOrderCanceledOverlay() {
+    unawaited(_stopIncomingOrderSound());
     setState(() {
       _resultOverlay = _ActionResultOverlay.orderCanceled;
     });
@@ -4861,7 +4981,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
     });
     if (!hasActiveOrder) {
-      _socket?.emit('driver:status', {'status': 'offline'});
+      _emitDriverStatusGuarded('offline');
+      SharedPreferences.getInstance().then((p) => p.setBool('driver_online_v1', false));
       Future<void>.delayed(const Duration(milliseconds: 3500), () {
         if (!mounted) return;
         setState(() {
@@ -4961,6 +5082,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void _declineOrder() {
     final order = _order;
     if (order == null) return;
+    unawaited(_stopIncomingOrderSound());
     _socket?.emit('driver:status', {'status': _driverOnline ? 'online' : 'offline'});
     _socket?.emit('order:decline', {'orderId': order.id});
     setState(() {
@@ -5343,7 +5465,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Доступ к заказам временно ограничен.\nОбратитесь в поддержку для уточнения.',
+                          _driverBlockMessage(),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _white55,
@@ -5605,6 +5727,7 @@ class _DriverOrder {
     this.completedAt,
     this.clientPhone,
     this.scheduledAt,
+    this.notifiedAt,
     this.comment,
     this.wish,
   });
@@ -5628,6 +5751,7 @@ class _DriverOrder {
         completedAt = null,
         clientPhone = null,
         scheduledAt = null,
+        notifiedAt = null,
         comment = null,
         wish = null;
 
@@ -5649,6 +5773,7 @@ class _DriverOrder {
   final DateTime? completedAt;
   final String? clientPhone;
   final DateTime? scheduledAt;
+  final DateTime? notifiedAt;
   final String? comment;
   final String? wish;
 
@@ -5662,6 +5787,7 @@ class _DriverOrder {
     DateTime? completedAt,
     String? clientPhone,
     DateTime? scheduledAt,
+    DateTime? notifiedAt,
     String? comment,
     String? wish,
   }) {
@@ -5684,6 +5810,7 @@ class _DriverOrder {
       completedAt: completedAt ?? this.completedAt,
       clientPhone: clientPhone ?? this.clientPhone,
       scheduledAt: scheduledAt ?? this.scheduledAt,
+      notifiedAt: notifiedAt ?? this.notifiedAt,
       comment: comment ?? this.comment,
       wish: wish ?? this.wish,
     );
@@ -5719,6 +5846,7 @@ Future<void> _showOrderNotification(_DriverOrder order) async {
     body: body,
     notificationDetails: _orderNotificationDetails(),
   );
+  await _playIncomingOrderSound();
 }
 
 Future<void> _showNearbyOrderNotification(_DriverOrder order) async {
@@ -5731,6 +5859,7 @@ Future<void> _showNearbyOrderNotification(_DriverOrder order) async {
     body: body,
     notificationDetails: _orderNotificationDetails(),
   );
+  await _playIncomingOrderSound();
 }
 
 class _StatusPill extends StatelessWidget {
@@ -5849,6 +5978,7 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
 
   Timer? _countdownTimer;
   int _msRemaining = _acceptTimeoutMs;
+  DateTime? _deadlineAt;
   late AnimationController _glowController;
   AudioPlayer? _audioPlayer;
   bool _isUrgent = false;
@@ -5872,7 +6002,8 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
     super.didUpdateWidget(oldWidget);
     if (widget.state != _DriverOrderUiState.incoming || widget.order.id.isEmpty) {
       _stopCountdown();
-    } else if (oldWidget.order.id != widget.order.id) {
+    } else if (oldWidget.order.id != widget.order.id ||
+        oldWidget.order.notifiedAt != widget.order.notifiedAt) {
       _resetCountdown();
     }
   }
@@ -5887,12 +6018,27 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
 
   void _startCountdown() {
     _countdownTimer?.cancel();
-    _msRemaining = _acceptTimeoutMs;
+    final notifiedAt = widget.order.notifiedAt ?? DateTime.now();
+    _deadlineAt = notifiedAt.add(const Duration(milliseconds: _acceptTimeoutMs));
+    _msRemaining = _deadlineAt!.difference(DateTime.now()).inMilliseconds;
     _timedOut = false;
     _vibrationTriggered = false;
+    if (_msRemaining <= 0) {
+      _timedOut = true;
+      widget.onTimeout?.call();
+      return;
+    }
+    if (_msRemaining <= _urgentThresholdMs && !_isUrgent) {
+      _isUrgent = true;
+      _glowController.repeat(reverse: true);
+      unawaited(_playUrgentFeedback());
+    }
     _countdownTimer = Timer.periodic(const Duration(milliseconds: _tickIntervalMs), (_) {
       if (!mounted) return;
-      _msRemaining -= _tickIntervalMs;
+      final deadlineAt = _deadlineAt;
+      _msRemaining = deadlineAt == null
+          ? 0
+          : deadlineAt.difference(DateTime.now()).inMilliseconds;
       
       if (_msRemaining <= _urgentThresholdMs && !_isUrgent) {
         _isUrgent = true;
@@ -5915,6 +6061,7 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
     _stopCountdown();
     _isUrgent = false;
     _msRemaining = _acceptTimeoutMs;
+    _deadlineAt = null;
     _vibrationTriggered = false;
     _startCountdown();
   }
@@ -5926,6 +6073,7 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
     _glowController.reset();
     _audioPlayer?.stop();
     _isUrgent = false;
+    _deadlineAt = null;
   }
 
   Future<void> _playUrgentFeedback() async {
@@ -5946,7 +6094,7 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
     try {
       _audioPlayer ??= AudioPlayer();
       await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
-      await _audioPlayer!.play(AssetSource('sounds/alarm.mp3'));
+      await _audioPlayer!.play(AssetSource('sounds/fantastic_siren.mp3'));
     } catch (_) {
       _playFallbackNotification();
     }
@@ -5992,16 +6140,29 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
         widget.state == _DriverOrderUiState.started ||
         widget.state == _DriverOrderUiState.completed;
     final showCountdown = widget.state == _DriverOrderUiState.incoming && !isEmpty;
+    final progress = _progress.clamp(0.0, 1.0);
+    final urgency = 1.0 - progress;
+    final borderColor = showCountdown
+        ? Color.lerp(
+            const Color(0xFF39D98A),
+            const Color(0xFFFF3D00),
+            _isUrgent ? (0.78 + _glowController.value * 0.18).clamp(0.0, 1.0) : urgency,
+          )!
+        : _white10;
+    final borderWidth = showCountdown ? (_isUrgent ? 2.2 : 1.45) : 1.0;
+    final borderShadow = showCountdown
+        ? borderColor.withOpacity(_isUrgent ? 0.34 : 0.18)
+        : _black65;
 
     final cardDecoration = BoxDecoration(
       color: _black55,
       borderRadius: BorderRadius.circular(18),
       border: Border.all(
-        color: _isUrgent ? const Color(0xFFFF3D00) : _white10,
-        width: _isUrgent ? 2.0 : 1.0,
+        color: borderColor,
+        width: borderWidth,
       ),
       boxShadow: [
-        BoxShadow(color: _black65, blurRadius: 14, offset: const Offset(0, 14)),
+        BoxShadow(color: borderShadow, blurRadius: showCountdown ? 16 : 14, offset: const Offset(0, 14)),
       ],
     );
 
@@ -6044,282 +6205,282 @@ class _IncomingOrderCardState extends State<_IncomingOrderCard>
                         ),
                       ),
                       const SizedBox(height: 4),
-                    Text(
-                      isEmpty ? 'Ожидаем заказ' : widget.order.pickupTitle,
-                      maxLines: 3,
-                      softWrap: true,
-                      style: TextStyle(
-                        color: _white95,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Куда',
-                      style: TextStyle(
-                        color: _white70,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isEmpty ? '—' : widget.order.dropoffTitle,
-                      maxLines: 3,
-                      softWrap: true,
-                      style: TextStyle(
-                        color: _white95,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                    if (widget.order.comment != null && widget.order.comment!.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A2636),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF2A3A50)),
+                      Text(
+                        isEmpty ? 'Ожидаем заказ' : widget.order.pickupTitle,
+                        maxLines: 3,
+                        softWrap: true,
+                        style: TextStyle(
+                          color: _white95,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
                         ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.chat_bubble_outline, color: _white55, size: 14),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                widget.order.comment!,
-                                style: TextStyle(color: _white78, fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Куда',
+                        style: TextStyle(
+                          color: _white70,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isEmpty ? '—' : widget.order.dropoffTitle,
+                        maxLines: 3,
+                        softWrap: true,
+                        style: TextStyle(
+                          color: _white95,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                      if (widget.order.comment != null && widget.order.comment!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A2636),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF2A3A50)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.chat_bubble_outline, color: _white55, size: 14),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  widget.order.comment!,
+                                  style: TextStyle(color: _white78, fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                    if (widget.order.wish != null && widget.order.wish!.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A1F00),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF4A3A00)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.star_outline, color: const Color(0xFFFFB24A), size: 14),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                widget.order.wish!,
-                                style: TextStyle(color: const Color(0xFFFFD080), fontSize: 13, fontWeight: FontWeight.w600),
+                      ],
+                      if (widget.order.wish != null && widget.order.wish!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A1F00),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF4A3A00)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.star_outline, color: const Color(0xFFFFB24A), size: 14),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  widget.order.wish!,
+                                  style: TextStyle(color: const Color(0xFFFFD080), fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _PriceBlock(
+                  order: widget.order,
+                  livePrice: (widget.state == _DriverOrderUiState.started ||
+                          widget.state == _DriverOrderUiState.completed)
+                      ? widget.tripPriceRub
+                      : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (!isEmpty) ...[
+              if (!isActive) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricChip(
+                        icon: Icons.navigation,
+                        label: '${widget.order.pickupDistanceKm.toStringAsFixed(1)} км • ${widget.order.pickupEtaMin} мин до подачи',
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              _PriceBlock(
-                order: widget.order,
-                livePrice: (widget.state == _DriverOrderUiState.started ||
-                        widget.state == _DriverOrderUiState.completed)
-                    ? widget.tripPriceRub
-                    : null,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (!isEmpty) ...[
-            if (!isActive) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricChip(
+                        icon: Icons.route,
+                        label: '${widget.order.tripDistanceKm.toStringAsFixed(1)} км • ${widget.order.tripEtaMin} мин поездка',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (widget.state == _DriverOrderUiState.started &&
+                  widget.tripElapsed != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricChip(
+                        icon: Icons.timer,
+                        label: 'В пути: ${widget.tripElapsed}',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (widget.state == _DriverOrderUiState.completed &&
+                  widget.tripElapsed != null &&
+                  widget.tripPriceRub != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricChip(
+                        icon: Icons.payments,
+                        label: 'Итог: ${_formatRubAmount(widget.tripPriceRub)} • ${widget.tripElapsed}',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
-                    child: _MetricChip(
-                      icon: Icons.navigation,
-                      label: '${widget.order.pickupDistanceKm.toStringAsFixed(1)} км • ${widget.order.pickupEtaMin} мин до подачи',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _MetricChip(
-                      icon: Icons.route,
-                      label: '${widget.order.tripDistanceKm.toStringAsFixed(1)} км • ${widget.order.tripEtaMin} мин поездка',
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          if (widget.state == _DriverOrderUiState.started &&
-              widget.tripElapsed != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _MetricChip(
-                    icon: Icons.timer,
-                    label: 'В пути: ${widget.tripElapsed}',
-                  ),
-                ),
-              ],
-            ),
-          ],
-          if (widget.state == _DriverOrderUiState.completed &&
-              widget.tripElapsed != null &&
-              widget.tripPriceRub != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _MetricChip(
-                    icon: Icons.payments,
-                    label: 'Итог: ${_formatRubAmount(widget.tripPriceRub)} • ${widget.tripElapsed}',
-                  ),
-                ),
-              ],
-            ),
-          ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
-                      onTap: widget.onNavigate,
+                    child: Material(
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(14),
-                      child: Ink(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFF1A2636), Color(0xFF0F1620)],
-                          ),
-                          border: Border.all(color: const Color(0xFF2A3A50)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.navigation_rounded, color: const Color(0xFF4A9EFF), size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Навигатор',
-                              style: TextStyle(
-                                color: const Color(0xFFD0E0FF),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 14,
-                                letterSpacing: 0.3,
-                              ),
+                      child: InkWell(
+                        onTap: widget.onNavigate,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Ink(
+                          height: 48,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF1A2636), Color(0xFF0F1620)],
                             ),
-                          ],
+                            border: Border.all(color: const Color(0xFF2A3A50)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.navigation_rounded, color: const Color(0xFF4A9EFF), size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Навигатор',
+                                style: TextStyle(
+                                  color: const Color(0xFFD0E0FF),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                if (widget.order.clientPhone != null &&
-                    widget.order.clientPhone!.isNotEmpty &&
-                    widget.state != _DriverOrderUiState.incoming &&
-                    widget.state != _DriverOrderUiState.declined) ...[
-                  const SizedBox(width: 10),
-                  _CallClientButton(phone: widget.order.clientPhone!),
+                  if (widget.order.clientPhone != null &&
+                      widget.order.clientPhone!.isNotEmpty &&
+                      widget.state != _DriverOrderUiState.incoming &&
+                      widget.state != _DriverOrderUiState.declined) ...[
+                    const SizedBox(width: 10),
+                    _CallClientButton(phone: widget.order.clientPhone!),
+                  ],
                 ],
-              ],
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (widget.state == _DriverOrderUiState.incoming)
-            _ActionButton(
-              label: 'ПРИНЯТЬ  ${showCountdown ? "($_secondsRemaining)" : ""}',
-              isPrimary: true,
-              enabled: widget.canAct && !_timedOut,
-              onPressed: () {
-                _stopCountdown();
-                widget.onAccept();
-              },
-              isUrgent: _isUrgent,
-            )
-          else if (widget.state == _DriverOrderUiState.accepted)
-            Row(
-              children: [
-                Expanded(
-                  child: _ActionButton(
-                    label: 'В ПУТИ',
-                    isPrimary: true,
-                    enabled: true,
-                    onPressed: widget.onEnroute,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _ActionButton(
-                    label: 'НА МЕСТЕ',
-                    isPrimary: false,
-                    enabled: true,
-                    onPressed: widget.onArrived,
-                  ),
-                ),
-              ],
-            )
-          else if (widget.state == _DriverOrderUiState.enroute)
-            _ActionButton(
-              label: 'НА МЕСТЕ',
-              isPrimary: true,
-              enabled: true,
-              onPressed: widget.onArrived,
-            )
-          else if (widget.state == _DriverOrderUiState.arrived)
-            _ActionButton(
-              label: 'НАЧАТЬ ПОЕЗДКУ',
-              isPrimary: true,
-              enabled: true,
-              onPressed: widget.onStarted,
-            )
-          else if (widget.state == _DriverOrderUiState.started)
-            _ActionButton(
-              label: 'ЗАВЕРШИТЬ',
-              isPrimary: true,
-              enabled: true,
-              onPressed: widget.onCompleted,
-            )
-          else if (widget.state == _DriverOrderUiState.completed) ...[
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: _white06,
-                border: Border.all(color: _white10),
               ),
-              child: Text(
-                'Предложите визитку клиенту!',
-                style: TextStyle(
-                  color: Colors.greenAccent.shade400.withOpacity(0.85),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
+            ],
+            const SizedBox(height: 12),
+            if (widget.state == _DriverOrderUiState.incoming)
+              _ActionButton(
+                label: 'ПРИНЯТЬ  ${showCountdown ? "($_secondsRemaining)" : ""}',
+                isPrimary: true,
+                enabled: widget.canAct && !_timedOut,
+                onPressed: () {
+                  _stopCountdown();
+                  widget.onAccept();
+                },
+                isUrgent: _isUrgent,
+              )
+            else if (widget.state == _DriverOrderUiState.accepted)
+              Row(
+                children: [
+                  Expanded(
+                    child: _ActionButton(
+                      label: 'В ПУТИ',
+                      isPrimary: true,
+                      enabled: true,
+                      onPressed: widget.onEnroute,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _ActionButton(
+                      label: 'НА МЕСТЕ',
+                      isPrimary: false,
+                      enabled: true,
+                      onPressed: widget.onArrived,
+                    ),
+                  ),
+                ],
+              )
+            else if (widget.state == _DriverOrderUiState.enroute)
+              _ActionButton(
+                label: 'НА МЕСТЕ',
+                isPrimary: true,
+                enabled: true,
+                onPressed: widget.onArrived,
+              )
+            else if (widget.state == _DriverOrderUiState.arrived)
+              _ActionButton(
+                label: 'НАЧАТЬ ПОЕЗДКУ',
+                isPrimary: true,
+                enabled: true,
+                onPressed: widget.onStarted,
+              )
+            else if (widget.state == _DriverOrderUiState.started)
+              _ActionButton(
+                label: 'ЗАВЕРШИТЬ',
+                isPrimary: true,
+                enabled: true,
+                onPressed: widget.onCompleted,
+              )
+            else if (widget.state == _DriverOrderUiState.completed) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: _white06,
+                  border: Border.all(color: _white10),
                 ),
-                textAlign: TextAlign.center,
+                child: Text(
+                  'Предложите визитку клиенту!',
+                  style: TextStyle(
+                    color: Colors.greenAccent.shade400.withOpacity(0.85),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            _ActionButton(
-              label: 'ГОТОВО',
-              isPrimary: true,
-              enabled: true,
-              onPressed: widget.onDismissCompleted ?? () {},
-            ),
+              const SizedBox(height: 10),
+              _ActionButton(
+                label: 'ГОТОВО',
+                isPrimary: true,
+                enabled: true,
+                onPressed: widget.onDismissCompleted ?? () {},
+              ),
+            ],
           ],
-        ],
         ),
       ),
     );
@@ -6341,102 +6502,136 @@ class _SmoothCountdownBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = isUrgent ? const Color(0xFFFF3D00) : const Color(0xFF4CAF50);
-    final bgColor = isUrgent ? const Color(0xFF2D0A0A) : const Color(0xFF1A2636);
-    final textColor = isUrgent ? const Color(0xFFFF6B4A) : _white90;
+    final clamped = progress.clamp(0.0, 1.0);
+    final urgency = 1.0 - clamped;
+    final pulse = isUrgent ? glowController.value : 0.0;
+    final safeBgStart = Color.lerp(const Color(0xFF187A69), const Color(0xFF1D8A75), urgency * 0.55)!;
+    final safeBgEnd = Color.lerp(const Color(0xFF18435D), const Color(0xFF3F2E63), urgency * 0.55)!;
+    final dangerBgStart = Color.lerp(const Color(0xFF7A2A1A), const Color(0xFFFF5A1F), urgency)!;
+    final dangerBgEnd = Color.lerp(const Color(0xFF49204E), const Color(0xFFE03131), urgency)!;
+    final accentColor = Color.lerp(
+      const Color(0xFF7CFF9E),
+      const Color(0xFFFF6B2C),
+      isUrgent ? (0.78 + pulse * 0.2).clamp(0.0, 1.0) : urgency,
+    )!;
+    final textColor = const Color(0xFFF8FAFF);
 
-    Widget content = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isUrgent ? const Color(0xFFFF3D00) : const Color(0xFF2A3A50),
-          width: isUrgent ? 1.5 : 1,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
         children: [
-          Row(
-            children: [
-              if (isUrgent)
-                AnimatedBuilder(
-                  animation: glowController,
-                  builder: (_, __) => Icon(
-                    Icons.warning_amber_rounded,
-                    color: Color.lerp(const Color(0xFFFF3D00), const Color(0xFFFFFF00), glowController.value),
-                    size: 20,
-                  ),
-                )
-              else
-                Icon(Icons.timer_outlined, color: baseColor, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isUrgent ? 'ПРИМИТЕ ЗАКАЗ!' : 'Время на принятие',
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
+          Positioned.fill(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [dangerBgStart, dangerBgEnd],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: baseColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '$secondsRemaining',
-                  style: TextStyle(
-                    color: baseColor,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 8,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: Stack(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _white10,
-                      borderRadius: BorderRadius.circular(4),
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
+                width: MediaQuery.of(context).size.width * 0.78 * clamped,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [safeBgStart, safeBgEnd],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 140),
+                opacity: isUrgent ? (0.08 + pulse * 0.10) : (0.02 + urgency * 0.03),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withOpacity(0.16),
+                        Colors.transparent,
+                        accentColor.withOpacity(0.14),
+                      ],
                     ),
                   ),
-                  FractionallySizedBox(
-                    widthFactor: progress.clamp(0.0, 1.0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(4),
-                        gradient: LinearGradient(
-                          colors: isUrgent
-                              ? [const Color(0xFFFF6B00), const Color(0xFFFF2D00)]
-                              : [const Color(0xFF66BB6A), const Color(0xFF43A047)],
+                ),
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isUrgent ? accentColor : const Color(0x99FFD08A),
+                width: isUrgent ? 1.5 : 1,
+              ),
+              boxShadow: isUrgent
+                  ? [BoxShadow(color: accentColor.withOpacity(0.30), blurRadius: 14)]
+                  : null,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    if (isUrgent)
+                      AnimatedBuilder(
+                        animation: glowController,
+                        builder: (_, __) => Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color.lerp(accentColor, const Color(0xFFFFF176), glowController.value),
+                          size: 20,
                         ),
-                        boxShadow: isUrgent
-                            ? [BoxShadow(color: const Color(0xAAFF3D00), blurRadius: 6)]
-                            : null,
+                      )
+                    else
+                      Icon(Icons.timer_outlined, color: accentColor, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isUrgent ? 'ПРИМИТЕ ЗАКАЗ!' : 'Время на принятие',
+                        style: TextStyle(
+                          color: textColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: accentColor.withOpacity(0.55)),
+                      ),
+                      child: Text(
+                        '$secondsRemaining',
+                        style: TextStyle(
+                          color: accentColor,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
-
-    return content;
   }
 }
 

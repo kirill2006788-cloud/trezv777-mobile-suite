@@ -70,6 +70,22 @@ export class AdminController {
     return 'drivers:all';
   }
 
+  private driverStatusKey() {
+    return 'drivers:status';
+  }
+
+  private driverGeoKey() {
+    return 'drivers:geo';
+  }
+
+  private driverLocKey(phone: string) {
+    return `driver:loc:${phone}`;
+  }
+
+  private driverPushTokenKey(phone: string) {
+    return `driver:push_token:${phone}`;
+  }
+
   private clientsSet() {
     return 'clients:all';
   }
@@ -148,6 +164,7 @@ export class AdminController {
         avatarBase64: profile.avatarBase64 || backup.avatarBase64 || null,
         passportFrontBase64: profile.passportFrontBase64 || backup.passportFrontBase64 || null,
         passportRegBase64: profile.passportRegBase64 || backup.passportRegBase64 || null,
+        driverLicenseBackBase64: profile.driverLicenseBackBase64 || backup.driverLicenseBackBase64 || null,
         selfieBase64: profile.selfieBase64 || backup.selfieBase64 || null,
       };
       const e = (earningsRaw[idx] || {}) as Record<string, string>;
@@ -159,7 +176,7 @@ export class AdminController {
         ...d,
         profile,
         earnings: { gross, commission, net, paid, available: net - paid },
-        limitReached: net >= earningsLimit,
+        limitReached: commission >= earningsLimit,
         earningsLimit,
       };
     });
@@ -181,8 +198,7 @@ export class AdminController {
     this.requireAdmin(auth);
     const phone = (phoneRaw || '').trim();
     if (!phone) return { ok: false };
-    await this.redis.client.set(`driver:block:${phone}`, '1', 'EX', 60 * 60 * 24 * 365);
-    await this.drivers.setStatus(phone, 'offline');
+    await this.drivers.blockTemporarily(phone, 'manual', 24 * 365);
     this.events.emitDriverBlocked(phone);
     return { ok: true };
   }
@@ -192,8 +208,29 @@ export class AdminController {
     this.requireAdmin(auth);
     const phone = (phoneRaw || '').trim();
     if (!phone) return { ok: false };
-    await this.redis.client.del(`driver:block:${phone}`);
+    await this.drivers.clearBlock(phone);
     this.events.emitDriverUnblocked(phone);
+    return { ok: true };
+  }
+
+  @Post('drivers/:phone/delete')
+  async deleteDriver(@Param('phone') phoneRaw: string, @Headers('authorization') auth?: string) {
+    this.requireAdmin(auth);
+    const phone = (phoneRaw || '').trim();
+    if (!phone) return { ok: false };
+    await this.drivers.clearBlock(phone);
+    await this.redis.client.del(this.driverProfileKey(phone));
+    await this.redis.client.del(this.driverPhotosBackupKey(phone));
+    await this.redis.client.del(this.driverLocKey(phone));
+    await this.redis.client.del(this.driverPushTokenKey(phone));
+    await this.redis.client.srem(this.driversSet(), phone);
+    await this.redis.client.hdel(this.driverStatusKey(), phone);
+    try {
+      await this.redis.client.zrem(this.driverGeoKey(), phone);
+    } catch {
+      // geo index cleanup is best-effort
+    }
+    await this.redis.client.srem('drivers:active_order', phone);
     return { ok: true };
   }
 

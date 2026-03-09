@@ -450,6 +450,10 @@ export class OrdersService {
       throw new ConflictException('Order is not available');
     }
 
+    if (await this.drivers.isBlocked(driverPhone)) {
+      throw new ConflictException('DRIVER_BLOCKED');
+    }
+
     // Проверка регистрации водителя
     const driverProfile = await this.drivers.getProfile(driverPhone);
     if (driverProfile && typeof driverProfile === 'object') {
@@ -896,12 +900,26 @@ export class OrdersService {
       throw new ConflictException('Order update already in progress');
     }
     try {
+      const normalizedDriverPhone = (driverPhone || '').trim().replace(/\D/g, '');
+      if (!normalizedDriverPhone) {
+        throw new ConflictException('Driver phone required');
+      }
       const order = await this.getOrder(orderId);
       if (order.status === 'canceled' || order.status === 'completed') {
         throw new ConflictException('Order is not available');
       }
-      if (order.driverPhone && order.driverPhone === driverPhone) return order;
-      if (order.driverPhone && order.driverPhone !== driverPhone) {
+      const driverProfile = await this.drivers.getProfile(normalizedDriverPhone);
+      if (!driverProfile || typeof driverProfile !== 'object') {
+        throw new ConflictException('Driver not found');
+      }
+      if ((driverProfile as any).registrationStatus !== 'completed') {
+        throw new ConflictException('Driver registration not completed');
+      }
+      if (await this.drivers.isBlocked(normalizedDriverPhone)) {
+        throw new ConflictException('Driver is blocked');
+      }
+      if (order.driverPhone && order.driverPhone === normalizedDriverPhone) return order;
+      if (order.driverPhone && order.driverPhone !== normalizedDriverPhone) {
         await this.drivers.setStatus(order.driverPhone, 'online');
         await this.redis.client.srem('drivers:active_order', order.driverPhone);
       }
@@ -909,15 +927,15 @@ export class OrdersService {
       const next: Order = {
         ...order,
         status: 'accepted',
-        driverPhone,
+        driverPhone: normalizedDriverPhone,
         commissionPercent: commission.percent,
         commissionAmount: commission.amount,
         acceptedAt: new Date().toISOString(),
       };
       await this.redis.client.set(this.orderKey(orderId), JSON.stringify(next), 'EX', 60 * 60 * 24 * 30);
-      await this.drivers.setStatus(driverPhone, 'busy');
-      await this.pushOrderIndex(this.driverOrdersKey(driverPhone), orderId);
-      await this.redis.client.sadd('drivers:active_order', driverPhone);
+      await this.drivers.setStatus(normalizedDriverPhone, 'busy');
+      await this.pushOrderIndex(this.driverOrdersKey(normalizedDriverPhone), orderId);
+      await this.redis.client.sadd('drivers:active_order', normalizedDriverPhone);
       return next;
     } finally {
       await this.redis.client.del(this.orderLockKey(orderId));

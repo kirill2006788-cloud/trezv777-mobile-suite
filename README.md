@@ -35,6 +35,14 @@
 - Логика блокировок/ограничений/подписок на стороне водителя
 - Карта, маршрут до клиента и до точки назначения, live-обновление ETA
 
+## Скриншоты приложения водителя
+
+<p align="center">
+  <img src="docs/screenshots/driver/driver-screen-1.png" alt="Driver app screenshot 1" width="260" />
+  <img src="docs/screenshots/driver/driver-screen-2.png" alt="Driver app screenshot 2" width="260" />
+  <img src="docs/screenshots/driver/driver-screen-3.png" alt="Driver app screenshot 3" width="260" />
+</p>
+
 ## Ключевые технические сложности
 
 - **Realtime-синхронизация двух ролей** (клиент/водитель) без расхождения статусов

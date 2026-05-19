@@ -1,4 +1,4 @@
-# Trezv777 Mobile Suite (Client + Driver)
+# 🚕 Trezv777 Mobile Suite
 
 <p align="center">
   <b>Flutter • iOS/Android • Realtime Taxi Workflow • Production Delivery</b>
@@ -8,71 +8,134 @@
   <a href="https://www.trezv777.ru/">www.trezv777.ru</a> • Built from scratch for company operations
 </p>
 
-## RU — О проекте
-
-Этот репозиторий содержит **две мобильные программы**, которые я разработал **с нуля** под бизнес-задачи компании **Trezv777**:
-
-- `app` — клиентское приложение
-- `prosto_taxi_driver` — приложение для водителя
-
-Цель продукта: закрыть полный цикл сервиса «трезвый водитель» в мобильном формате — от создания заказа клиентом до принятия/ведения заказа водителем и завершения поездки.
-
-## Что внутри (по продукту)
-
-### 1) Клиентское приложение (`app`)
-- Авторизация по OTP
-- Выбор точек на карте + геокодинг/реверс-геокодинг
-- Расчёт маршрута, ETA, предпросмотр стоимости
-- Создание заказа с комментариями, пожеланиями, тарифами, бонусами/промокодами
-- Realtime-статусы заказа и трекинг водителя
-- История поездок, оценка заказа, профильные сценарии
-
-### 2) Приложение водителя (`prosto_taxi_driver`)
-- Авторизация и защищённые API-вызовы
-- Получение заказов в realtime (Socket.IO)
-- Полный статусный цикл поездки: incoming → accepted → enroute → arrived → started → completed
-- Работа с предзаказами, напоминаниями, пушами, звуком и вибрацией
-- Логика блокировок/ограничений/подписок на стороне водителя
-- Карта, маршрут до клиента и до точки назначения, live-обновление ETA
-
-## Скриншоты приложения водителя
-
 <p align="center">
-  <img src="docs/screenshots/driver/driver-screen-1.png" alt="Driver app screenshot 1" width="260" />
-  <img src="docs/screenshots/driver/driver-screen-2.png" alt="Driver app screenshot 2" width="260" />
-  <img src="docs/screenshots/driver/driver-screen-3.png" alt="Driver app screenshot 3" width="260" />
+  <a href="https://apps.apple.com/us/app/трезвый-водитель-ноль-промилле/id6765466281">
+    <img src="https://img.shields.io/badge/App_Store-000000?style=for-the-badge&logo=app-store&logoColor=white" alt="App Store">
+  </a>
+  <a href="https://play.google.com/store/apps/details?id=ru.nolpromille.driver&pcampaignid=web_share">
+    <img src="https://img.shields.io/badge/Google_Play-000000?style=for-the-badge&logo=google-play&logoColor=white" alt="Google Play">
+  </a>
 </p>
 
-## Ключевые технические сложности
+---
 
-- **Realtime-синхронизация двух ролей** (клиент/водитель) без расхождения статусов
-- **Устойчивость к сетевым проблемам**: reconnect, fallback-сценарии, повторная инициализация состояния
-- **Сложная state-машина заказа** с сохранением и восстановлением активного состояния
-- **Гео-логика и маршрутные сценарии**: геопозиция, ETA, обновления координат, навигационное поведение
-- **Продовая безопасность**: секреты через env/secrets files, без хардкода ключей в публичном репозитории
-- **Release-подготовка**: Android/iOS конфиги, CI-пайплайн и инфраструктурная сборка
+## 📱 Download
 
-## Что сделал лично
+| App | Platform | Link |
+|-----|----------|------|
+| **Driver App** | iOS | [App Store](https://apps.apple.com/us/app/трезвый-водитель-ноль-промилле/id6765466281) |
+| **Driver App** | Android | [Google Play](https://play.google.com/store/apps/details?id=ru.nolpromille.driver&pcampaignid=web_share) |
 
-- Проектировал архитектуру и ключевые сценарии продукта
-- Реализовал клиентскую и водительскую части на Flutter
-- Настроил взаимодействие с backend/API, realtime-каналы, токены и сессии
-- Довёл решение до рабочего коммерческого состояния под реальные бизнес-процессы
+---
 
-## Security / Publication Notes
+## ✨ Features
 
-В репозитории оставлен только publish-safe код:
-- нет API-ключей, приватных сертификатов, keystore и секретных конфигов
-- чувствительные значения вынесены в локальные `secrets.*`/`key.properties`/env-файлы
-- примеры конфигов оставлены для запуска и сборки
+### Client App (`app`)
+- ✅ OTP Authorization
+- ✅ Map-based location selection with geocoding
+- ✅ Route calculation, ETA, cost preview
+- ✅ Order creation with comments, preferences, tariffs, bonuses/promocodes
+- ✅ Real-time order status and driver tracking
+- ✅ Trip history, order rating, profile scenarios
 
-## Download Status
+### Driver App (`prosto_taxi_driver`)
+- ✅ Secure authorization and API calls
+- ✅ Real-time order receiving (Socket.IO)
+- ✅ Complete trip status cycle: incoming → accepted → enroute → arrived → started → completed
+- ✅ Pre-orders, reminders, push notifications, sound and vibration
+- ✅ Driver blocking/subscription logic
+- ✅ Map, route to client and destination, live ETA updates
 
-Мобильные приложения находятся в финальной стадии подготовки релизов.
+---
 
-> **Скоро будут доступны для скачивания** (Android/iOS).
+## 🛠 Tech Stack
 
-## Contact
+- **Framework:** Flutter 3.16+
+- **State Management:** BLoC / Provider
+- **Real-time:** Socket.IO
+- **Maps:** Yandex Maps / Google Maps
+- **Backend:** REST API
+- **Architecture:** Clean Architecture
 
-- Telegram: `@HeyBro8664`
-- Email: `Kirill2006788@gmail.com`
+---
+
+## 📂 Project Structure
+
+```
+trezv777-mobile-suite/
+├── app/                    # Client application
+│   ├── lib/
+│   │   ├── core/          # Core utilities
+│   │   ├── data/          # Data layer
+│   │   ├── domain/        # Business logic
+│   │   └── presentation/  # UI layer
+│   └── pubspec.yaml
+│
+├── prosto_taxi_driver/     # Driver application
+│   ├── lib/
+│   │   ├── core/
+│   │   ├── data/
+│   │   ├── domain/
+│   │   └── presentation/
+│   └── pubspec.yaml
+│
+└── docs/                   # Documentation
+    └── screenshots/
+```
+
+---
+
+## 🔧 Getting Started
+
+```bash
+# Clone repository
+git clone https://github.com/kirill2006788-cloud/trezv777-mobile-suite.git
+cd trezv777-mobile-suite
+
+# Install dependencies
+flutter pub get
+
+# Run client app
+cd app
+flutter run
+
+# Run driver app
+cd prosto_taxi_driver
+flutter run
+```
+
+---
+
+## 🏗 Key Technical Challenges
+
+- **Real-time synchronization** between two roles (client/driver) without status discrepancies
+- **Network resilience:** reconnect, fallback scenarios, state reinitialization
+- **Complex order state machine** with active state persistence and recovery
+- **Geo logic and routing:** geolocation, ETA, coordinate updates, navigation behavior
+- **Production security:** secrets via env/secrets files, no hardcoded keys in public repo
+- **Release preparation:** Android/iOS configs, CI pipeline and infrastructure build
+
+---
+
+## 👨‍💻 What I Built
+
+- Designed architecture and key scenarios
+- Implemented full client application from scratch
+- Implemented full driver application from scratch
+- Integrated real-time communication (Socket.IO)
+- Implemented complex state machine for order processing
+- Set up CI/CD pipeline for automated builds
+- Deployed to App Store and Google Play
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+  <p>Built with ❤️ by <a href="https://github.com/kirill2006788-cloud">Kirill</a></p>
+  <p>© 2024 Trezv777 Mobile Suite</p>
+</div>

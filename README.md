@@ -28,7 +28,7 @@
 
 ---
 
-## ✨ Features
+## ✨ What This Project Demonstrates
 
 ### Client App (`app`)
 - ✅ OTP Authorization
@@ -50,16 +50,18 @@
 
 ## 🛠 Tech Stack
 
-- **Framework:** Flutter 3.16+
-- **State Management:** BLoC / Provider
-- **Real-time:** Socket.IO
-- **Maps:** Yandex Maps / Google Maps
-- **Backend:** REST API
-- **Architecture:** Clean Architecture
+| Layer | Technology |
+|-------|------------|
+| **Framework** | Flutter 3.16+ |
+| **State Management** | BLoC / Provider |
+| **Real-time** | Socket.IO |
+| **Maps** | Yandex Maps / Google Maps |
+| **Backend** | REST API |
+| **Architecture** | Clean Architecture |
 
 ---
 
-## 📂 Project Structure
+## 🏗 Architecture
 
 ```
 trezv777-mobile-suite/
@@ -69,7 +71,6 @@ trezv777-mobile-suite/
 │   │   ├── data/          # Data layer
 │   │   ├── domain/        # Business logic
 │   │   └── presentation/  # UI layer
-│   └── pubspec.yaml
 │
 ├── prosto_taxi_driver/     # Driver application
 │   ├── lib/
@@ -77,7 +78,6 @@ trezv777-mobile-suite/
 │   │   ├── data/
 │   │   ├── domain/
 │   │   └── presentation/
-│   └── pubspec.yaml
 │
 └── docs/                   # Documentation
     └── screenshots/
@@ -85,28 +85,7 @@ trezv777-mobile-suite/
 
 ---
 
-## 🔧 Getting Started
-
-```bash
-# Clone repository
-git clone https://github.com/kirill2006788-cloud/trezv777-mobile-suite.git
-cd trezv777-mobile-suite
-
-# Install dependencies
-flutter pub get
-
-# Run client app
-cd app
-flutter run
-
-# Run driver app
-cd prosto_taxi_driver
-flutter run
-```
-
----
-
-## 🏗 Key Technical Challenges
+## 🔑 Key Technical Challenges
 
 - **Real-time synchronization** between two roles (client/driver) without status discrepancies
 - **Network resilience:** reconnect, fallback scenarios, state reinitialization
@@ -114,6 +93,7 @@ flutter run
 - **Geo logic and routing:** geolocation, ETA, coordinate updates, navigation behavior
 - **Production security:** secrets via env/secrets files, no hardcoded keys in public repo
 - **Release preparation:** Android/iOS configs, CI pipeline and infrastructure build
+
 
 ---
 
@@ -127,11 +107,13 @@ flutter run
 - Set up CI/CD pipeline for automated builds
 - Deployed to App Store and Google Play
 
+
 ---
 
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
 
 ---
 
